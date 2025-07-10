@@ -10,6 +10,7 @@ app.use(express.json());
 const LABEL_FILE_PATH = path.join(__dirname, 'label.txt');
 // Set your printer's name exactly as it appears in Windows
 const PRINTER_NAME = 'TSC_TE200'; // <-- Change if your printer name is different
+const PRINTER_SHARE_NAME = 'TSC_TE200'; // Change to your share name!
 
 // app.post('/print-label', (req, res) => {
 //   const tspl = req.body.tspl;
@@ -20,7 +21,6 @@ const PRINTER_NAME = 'TSC_TE200'; // <-- Change if your printer name is differen
 
 //   // Save TSPL file locally (on Windows PC)
 //   fs.writeFileSync(LABEL_FILE_PATH, tspl);
-//   const PRINTER_SHARE_NAME = 'TSC_TE200'; // Change to your share name!
 //   // Command for local printing
 //   const printCmd = `copy /b "${LABEL_FILE_PATH}" "\\\\localhost\\${PRINTER_SHARE_NAME}"`;
 //   console.log('Executing print command:', printCmd);
