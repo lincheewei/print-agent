@@ -1,43 +1,56 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { exec } = require('child_process');
+const { spawn, execSync } = require('child_process');
 
 const app = express();
 app.use(express.json());
 
-// Use absolute path for the label file
-const LABEL_FILE_PATH = path.join(__dirname, 'label.txt');
-// Set your printer's name exactly as it appears in Windows
-const PRINTER_NAME = 'TSC_TE200'; // <-- Change if your printer name is different
-const PRINTER_SHARE_NAME = 'TSC_TE200'; // Change to your share name!
+// ---------- CONFIG ----------
+const PRINTER_SHARE_NAME = 'TSC_TE200'; // <-- Update to your shared printer name
+const SCALE_SCRIPT = path.join(__dirname, 'scale_service.py');
+const VENV_DIR = path.join(__dirname, 'venv');
+const REQUIREMENTS_FILE = path.join(__dirname, 'requirements.txt');
 
-// app.post('/print-label', (req, res) => {
-//   const tspl = req.body.tspl;
+// ---------- PYTHON ENV SETUP ----------
 
-//   if (!tspl) {
-//     return res.status(400).json({ success: false, error: 'Missing TSPL data in request body.' });
-//   }
+// 1. Create virtual environment if not exists
+if (!fs.existsSync(VENV_DIR)) {
+  console.log('[Python] Creating virtual environment...');
+  execSync(`python -m venv venv`, { cwd: __dirname, stdio: 'inherit' });
+}
 
-//   // Save TSPL file locally (on Windows PC)
-//   fs.writeFileSync(LABEL_FILE_PATH, tspl);
-//   // Command for local printing
-//   const printCmd = `copy /b "${LABEL_FILE_PATH}" "\\\\localhost\\${PRINTER_SHARE_NAME}"`;
-//   console.log('Executing print command:', printCmd);
+// 2. Install dependencies from requirements.txt
+console.log('[Python] Installing dependencies...');
+const pipCmd = process.platform === 'win32'
+  ? path.join(VENV_DIR, 'Scripts', 'pip')
+  : path.join(VENV_DIR, 'bin', 'pip');
+execSync(`"${pipCmd}" install -r requirements.txt`, { cwd: __dirname, stdio: 'inherit' });
 
-//   exec(printCmd, (err, stdout, stderr) => {
-//     if (err) {
-//       console.error('Print error:', err, stderr);
-//       return res.status(500).json({ success: false, error: 'Print failed: ' + stderr });
-//     }
-//     console.log('Print success:', stdout);
-//     res.json({ success: true, message: 'Label sent to printer.' });
-//   });
-// });
+// 3. Start scale_service.py using the venv Python
+console.log('[Scale] Starting scale_service.py...');
+const pythonCmd = process.platform === 'win32'
+  ? path.join(VENV_DIR, 'Scripts', 'python')
+  : path.join(VENV_DIR, 'bin', 'python');
 
+const scaleProcess = spawn(`"${pythonCmd}"`, [SCALE_SCRIPT], {
+  cwd: __dirname,
+  shell: true
+});
+
+scaleProcess.stdout.on('data', (data) => {
+  console.log(`[Scale] ${data}`);
+});
+scaleProcess.stderr.on('data', (data) => {
+  console.error(`[Scale ERROR] ${data}`);
+});
+scaleProcess.on('exit', (code) => {
+  console.log(`[Scale] Python process exited with code ${code}`);
+});
+
+// ---------- PRINT API ----------
 app.post('/print-label', async (req, res) => {
   const tspl = req.body.tspl;
-
   if (!tspl) return res.status(400).json({ success: false, error: 'Missing TSPL data.' });
 
   try {
@@ -45,24 +58,21 @@ app.post('/print-label', async (req, res) => {
     await fs.promises.writeFile(uniqueFile, tspl);
 
     const printCmd = `copy /b "${uniqueFile}" "\\\\localhost\\${PRINTER_SHARE_NAME}"`;
-    console.log('Executing print command:', printCmd);
+    console.log('[Print] Executing:', printCmd);
 
-    exec(printCmd, (err, stdout, stderr) => {
-      fs.unlink(uniqueFile, () => {}); // Clean up
-      if (err) {
-        console.error('Print error:', err, stderr);
-        return res.status(500).json({ success: false, error: 'Print failed: ' + stderr });
-      }
-      console.log('Print success:', stdout);
-      res.json({ success: true, message: 'Label sent to printer.' });
-    });
+    execSync(printCmd, { stdio: 'inherit', shell: true });
+    fs.unlink(uniqueFile, () => {}); // Clean up temp file
+
+    res.json({ success: true, message: 'Label sent to printer.' });
   } catch (err) {
-    console.error('Unexpected error:', err);
-    res.status(500).json({ success: false, error: 'Internal error writing label.' });
+    console.error('[Print ERROR]', err);
+    res.status(500).json({ success: false, error: 'Print failed. Check logs.' });
   }
 });
 
-app.listen(9999, () => {
-  console.log('Print agent running on port 9999');
-  console.log('Waiting for print jobs...');
+// ---------- SERVER ----------
+const PORT = 9999;
+app.listen(PORT, () => {
+  console.log(`\n✅ Print agent running on http://localhost:${PORT}`);
+  console.log(`↪ Scale service available at http://localhost:8000/get_weight\n`);
 });
