@@ -6,7 +6,7 @@ from collections import OrderedDict
 from flask_cors import CORS
 
 # -----------  CONFIG  -----------
-PORT      = os.getenv("SCALE_COM", "COM3")
+PORT      = os.getenv("SCALE_COM", "COM7")
 BAUD      = int(os.getenv("SCALE_BAUD", "1200"))
 TIMEOUT   = 1                 # seconds for serial.readline
 MODE_AUTO = False             # True if your scale is in AUTO stream mode
