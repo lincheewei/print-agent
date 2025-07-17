@@ -111,33 +111,130 @@ const REQUIREMENTS_FILE = path.join(__dirname, 'requirements.txt');
 async function generateLabelImageFromData(labelData) {
   const outputPath = path.join(__dirname, `label_${Date.now()}.png`);
   const html = `
-    <html>
-    <head>
-      <style>
-        body { margin: 0; padding: 0; font-family: Arial, sans-serif; width: 576px; height: 560px; }
-        .container { width: 576px; height: 560px; padding: 10px; box-sizing: border-box; border: 1px solid #000; }
-        .header { text-align: center; font-weight: bold; font-size: 18px; margin-bottom: 10px; }
-        .row { display: flex; font-size: 10px; margin-bottom: 4px; }
-        .label { font-weight: bold; margin-right: 4px; min-width: 90px; }
-        .section { border-top: 1px solid black; margin-top: 6px; padding-top: 6px; }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-        <div class="header">WORK ORDER LABEL</div>
-        <div class="row"><div class="label">W.O. NO.:</div> <div>${labelData.coNumber}</div></div>
-        <div class="row"><div class="label">PART NAME:</div> <div>${labelData.partName}</div></div>
-        <div class="row"><div class="label">DATE ISSUE:</div> <div>${labelData.dateIssue}</div></div>
-        <div class="row"><div class="label">STOCK CODE:</div> <div>${labelData.stockCode}</div></div>
-        <div class="row"><div class="label">PROCESS CODE:</div> <div>${labelData.processCode}</div></div>
-        <div class="row"><div class="label">EMP. NO.:</div> <div>${labelData.empNo}</div></div>
-        <div class="row"><div class="label">QTY:</div> <div>${labelData.qty}</div></div>
-        <div class="section">
-          <div class="row"><div class="label">REMARKS:</div> <div>${labelData.remarks}</div></div>
-        </div>
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 576px; height: 560px;
+      font-family: Helvetica, sans-serif;
+      font-size: 10px;
+      padding: 4px;
+    }
+
+    .header {
+      font-size: 14px;
+      text-align: center;
+      font-weight: bold;
+      border: 1px solid black;
+      padding: 4px;
+      margin-bottom: 4px;
+    }
+
+    .row {
+      display: flex;
+      flex-direction: row;
+      width: 100%;
+    }
+
+    .col30, .col40, .col70, .col100 {
+      border: 1px solid black;
+      padding: 4px;
+      min-height: 40px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+    }
+
+    .col30 { width: 30%; }
+    .col40 { width: 40%; }
+    .col70 { width: 70%; }
+    .col100 { width: 100%; }
+
+    .label {
+      font-weight: bold;
+      font-size: 8px;
+      text-decoration: underline;
+      margin-bottom: 2px;
+    }
+
+    .value {
+      font-size: 10px;
+      flex: 1;
+    }
+
+    .remarks-container {
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .barcode {
+      width: 80px;
+      height: 30px;
+      margin-left: 8px;
+      object-fit: contain;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">WORK ORDER LABEL</div>
+
+  <!-- Row 2: 30% - 70% -->
+  <div class="row">
+    <div class="col30">
+      <div class="label">W.O. NO. :</div>
+      <div class="value">{{jtc}}</div>
+    </div>
+    <div class="col70">
+      <div class="label">PART NAME :</div>
+      <div class="value">{{component_1}}</div>
+    </div>
+  </div>
+
+  <!-- Row 3: 30% - 30% - 40% -->
+  <div class="row">
+    <div class="col30">
+      <div class="label">DATE ISSUE :</div>
+      <div class="value">{{dateIssue}}</div>
+    </div>
+    <div class="col30">
+      <div class="label">STOCK CODE :</div>
+      <div class="value">{{stock_code}}</div>
+    </div>
+    <div class="col40">
+      <div class="label">PROCESS CODE / NO. :</div>
+      <div class="value">{{process_code}}</div>
+    </div>
+  </div>
+
+  <!-- Row 4: 30% - 70% -->
+  <div class="row">
+    <div class="col30">
+      <div class="label">EMP. NO. :</div>
+      <div class="value">{{emp_no}}</div>
+    </div>
+    <div class="col70">
+      <div class="label">QTY :</div>
+      <div class="value">{{quantity_c1}}</div>
+    </div>
+  </div>
+
+  <!-- Row 5: 100% with barcode on top right -->
+  <div class="row">
+    <div class="col100">
+      <div class="label">REMARKS :</div>
+      <div class="remarks-container">
+        <div class="value">{{remarks}}</div>
+        {{#if barcodeDataUrl}}
+          <img class="barcode" src="{{barcodeDataUrl}}" />
+        {{/if}}
       </div>
-    </body>
-    </html>
+    </div>
+  </div>
+</body>
+</html>
   `;
 
   const browser = await puppeteer.launch({ headless: 'new' });
