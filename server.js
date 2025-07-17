@@ -106,8 +106,7 @@ const REQUIREMENTS_FILE = path.join(__dirname, 'requirements.txt');
 //   return outputPath;
 // }
 const { createCanvas, loadImage } = require('canvas');
-const fs = require('fs');
-const path = require('path');
+
 
 async function generateLabelImageFromData(labelData) {
   const width = 576;
