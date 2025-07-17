@@ -8,7 +8,8 @@ const app = express();
 app.use(express.json());
 
 // ---------- CONFIG ----------
-const PRINTER_SHARE_NAME = 'TSC_TE200'; // <-- Update if needed
+// const PRINTER_SHARE_NAME = 'TSC_TE200'; // <-- Update if needed
+const PRINTER_SHARE_NAME = 'HPRT_TP805L'; // <-- Update if needed
 const DEFAULT_HPRT_IP = '192.168.1.88'; // Optional: default wireless printer IP
 const SCALE_SCRIPT = path.join(__dirname, 'scale_service.py');
 const VENV_DIR = path.join(__dirname, 'venv');
@@ -40,7 +41,7 @@ scaleProcess.on('exit', (code) => console.log(`[Scale] Python process exited wit
 
 // ---------- PRINT API ----------
 app.post('/print-label', async (req, res) => {
-  const { printerType = 'tsc', tspl, escpos, printerIP } = req.body;
+  const { printerType = 'hprt', tspl, escpos, printerIP } = req.body;
 
   try {
     if (printerType === 'tsc') {
