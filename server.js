@@ -47,22 +47,23 @@ const REQUIREMENTS_FILE = path.join(__dirname, 'requirements.txt');
 async function generateLabelImageFromData(labelData) {
   const outputPath = path.join(__dirname, `label_${Date.now()}.png`);
   const svg = `
-    <svg width="576" height="560" xmlns="http://www.w3.org/2000/svg">
-      <style>
-        text { font-family: Arial, sans-serif; font-size: 18px; }
-      </style>
-      <rect x="0" y="0" width="576" height="560" fill="white" stroke="black" stroke-width="2"/>
-      <text x="180" y="30">WORK ORDER LABEL</text>
-      <text x="10" y="70">W.O. NO.: ${labelData.coNumber}</text>
-      <text x="300" y="70">PART NAME: ${labelData.partName}</text>
-      <text x="10" y="110">DATE ISSUE: ${labelData.dateIssue}</text>
-      <text x="10" y="150">STOCK CODE: ${labelData.stockCode}</text>
-      <text x="300" y="150">PROCESS CODE: ${labelData.processCode}</text>
-      <text x="10" y="190">EMP. NO.: ${labelData.empNo}</text>
-      <text x="300" y="190">QTY.: ${labelData.qty}</text>
-      <text x="10" y="230">REMARKS: ${labelData.remarks}</text>
-    </svg>
-  `;
+  <svg width="576" height="560" xmlns="http://www.w3.org/2000/svg">
+    <style>
+      text { font-family: Arial, sans-serif; font-size: 22px; }
+    </style>
+    <rect x="0" y="0" width="576" height="560" fill="white" stroke="black" stroke-width="2"/>
+    <text x="150" y="40">WORK ORDER LABEL</text>
+    <text x="10" y="90">W.O. NO.: ${labelData.coNumber}</text>
+    <text x="300" y="90">PART NAME: ${labelData.partName}</text>
+    <text x="10" y="140">DATE ISSUE: ${labelData.dateIssue}</text>
+    <text x="10" y="190">STOCK CODE: ${labelData.stockCode}</text>
+    <text x="300" y="190">PROCESS CODE: ${labelData.processCode}</text>
+    <text x="10" y="240">EMP. NO.: ${labelData.empNo}</text>
+    <text x="300" y="240">QTY.: ${labelData.qty}</text>
+    <text x="10" y="290">REMARKS: ${labelData.remarks}</text>
+  </svg>
+`;
+
   await sharp(Buffer.from(svg))
     .png()
     .toFile(outputPath);
@@ -75,8 +76,9 @@ async function convertImageToEscposRaster(imagePath) {
   const ESC = '\x1B';
   const GS = '\x1D';
   const { data, info } = await sharp(imagePath)
-    .threshold(128)
-    .resize(576)
+    .resize(576, 560, { fit: 'fill' })         // 强制输出 576×560 px
+    .threshold(180)                            // 更明确的黑白转换阈值
+    .flatten({ background: '#FFFFFF' })        // 避免透明像素导致锯齿
     .raw()
     .toBuffer({ resolveWithObject: true });
 
