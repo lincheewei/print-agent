@@ -39,9 +39,79 @@ const REQUIREMENTS_FILE = path.join(__dirname, 'requirements.txt');
 // scaleProcess.stderr.on('data', (data) => console.error(`[Scale ERROR] ${data}`));
 // scaleProcess.on('exit', (code) => console.log(`[Scale] Python process exited with code ${code}`));
 
+
+
+// ---------- UTILITY: Generate dummy label image (replace with dynamic layout if needed) ----------
+async function generateLabelImageFromData(labelData) {
+  const outputPath = path.join(__dirname, `label_${Date.now()}.png`);
+  const svg = `
+    <svg width="576" height="560" xmlns="http://www.w3.org/2000/svg">
+      <style>
+        text { font-family: Arial, sans-serif; font-size: 18px; }
+      </style>
+      <rect x="0" y="0" width="576" height="560" fill="white" stroke="black" stroke-width="2"/>
+      <text x="180" y="30">WORK ORDER LABEL</text>
+      <text x="10" y="70">W.O. NO.: ${labelData.coNumber}</text>
+      <text x="300" y="70">PART NAME: ${labelData.partName}</text>
+      <text x="10" y="110">DATE ISSUE: ${labelData.dateIssue}</text>
+      <text x="10" y="150">STOCK CODE: ${labelData.stockCode}</text>
+      <text x="300" y="150">PROCESS CODE: ${labelData.processCode}</text>
+      <text x="10" y="190">EMP. NO.: ${labelData.empNo}</text>
+      <text x="300" y="190">QTY.: ${labelData.qty}</text>
+      <text x="10" y="230">REMARKS: ${labelData.remarks}</text>
+    </svg>
+  `;
+  await sharp(Buffer.from(svg))
+    .png()
+    .toFile(outputPath);
+  return outputPath;
+}
+
+
+// ---------- UTILITY: Convert PNG to ESC/POS Raster ----------
+async function convertImageToEscposRaster(imagePath) {
+  const ESC = '\x1B';
+  const GS = '\x1D';
+  const { data, info } = await sharp(imagePath)
+    .threshold(128)
+    .resize(576)
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const width = info.width;
+  const height = info.height;
+  const bytesPerRow = Math.ceil(width / 8);
+
+  const xL = bytesPerRow & 0xff;
+  const xH = (bytesPerRow >> 8) & 0xff;
+  const yL = height & 0xff;
+  const yH = (height >> 8) & 0xff;
+
+  let raster = Buffer.concat([
+    Buffer.from(GS + 'v0' + '\x00' + String.fromCharCode(xL, xH, yL, yH), 'binary'),
+    Buffer.alloc(bytesPerRow * height)
+  ]);
+
+  for (let y = 0; y < height; y++) {
+    for (let xByte = 0; xByte < bytesPerRow; xByte++) {
+      let byte = 0;
+      for (let bit = 0; bit < 8; bit++) {
+        const x = xByte * 8 + bit;
+        if (x < width && data[y * width + x] === 0) {
+          byte |= (1 << (7 - bit));
+        }
+      }
+      raster[(bytesPerRow * y) + xByte + 8] = byte;
+    }
+  }
+
+  raster = Buffer.concat([raster, Buffer.from(GS + 'V' + '\x01', 'binary')]);
+  return raster;
+}
+
 // ---------- PRINT API ----------
 app.post('/print-label', async (req, res) => {
-  const { printerType = 'hprt', tspl, escpos, printerIP } = req.body;
+  const { printerType = 'hprt', tspl, escpos, printerIP, labelData } = req.body;
 
   try {
     if (printerType === 'tsc') {
@@ -49,22 +119,29 @@ app.post('/print-label', async (req, res) => {
 
       const file = path.join(__dirname, `tsc_${Date.now()}.txt`);
       await fs.promises.writeFile(file, tspl, 'ascii');
-
-      const printCmd = `copy /b "${file}" "\\\\localhost\\${PRINTER_SHARE_NAME}"`;
-      console.log('[Print] (TSC) Executing:', printCmd);
+      const printCmd = `copy /b "${file}" \\localhost\${PRINTER_SHARE_NAME}`;
       execSync(printCmd, { stdio: 'inherit', shell: true });
       fs.unlink(file, () => {});
       return res.json({ success: true, message: 'TSC label sent to printer.' });
     }
 
     if (printerType === 'hprt') {
-      if (!escpos) return res.status(400).json({ success: false, error: 'Missing ESC/POS data.' });
+      let finalData;
+
+      if (labelData) {
+        const imagePath = await generateLabelImageFromData(labelData);
+        finalData = await convertImageToEscposRaster(imagePath);
+        fs.unlink(imagePath, () => {}); // optional cleanup
+      } else if (escpos) {
+        finalData = Buffer.from(escpos, 'ascii');
+      } else {
+        return res.status(400).json({ success: false, error: 'Missing ESC/POS or labelData.' });
+      }
 
       if (printerIP) {
-        // Print via TCP (wireless mode)
         const client = new net.Socket();
         client.connect(9100, printerIP, () => {
-          client.write(escpos, 'ascii');
+          client.write(finalData);
           client.end();
         });
         client.on('error', (err) => {
@@ -73,11 +150,9 @@ app.post('/print-label', async (req, res) => {
         });
         return res.json({ success: true, message: 'HPRT label sent via TCP.' });
       } else {
-        // Print via Windows shared printer
-        const file = path.join(__dirname, `hprt_${Date.now()}.txt`);
-        await fs.promises.writeFile(file, escpos, 'ascii');
-        const printCmd = `copy /b "${file}" "\\\\localhost\\${PRINTER_SHARE_NAME}"`;
-        console.log('[Print] (HPRT Shared) Executing:', printCmd);
+        const file = path.join(__dirname, `hprt_${Date.now()}.bin`);
+        await fs.promises.writeFile(file, finalData);
+        const printCmd = `copy /b "${file}" \\localhost\${PRINTER_SHARE_NAME}`;
         execSync(printCmd, { stdio: 'inherit', shell: true });
         fs.unlink(file, () => {});
         return res.json({ success: true, message: 'HPRT label sent to shared printer.' });
@@ -90,6 +165,7 @@ app.post('/print-label', async (req, res) => {
     return res.status(500).json({ success: false, error: 'Printing failed.' });
   }
 });
+
 
 // ---------- SERVER ----------
 const PORT = 9999;
