@@ -55,7 +55,7 @@ const svg = `
         .value { font-size: 10px; }
       </style>
 
-      <rect x="0" y="0" width="576" height="560" fill="white" stroke="black" stroke-width="1"/>
+      <rect x="0" y="0" width="172.8" height="50" fill="white" stroke="black" stroke-width="1"/>
       <text class="header" x="288" y="24">WORK ORDER LABEL</text>
 
       <!-- Row 1 -->
