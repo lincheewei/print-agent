@@ -16,28 +16,28 @@ const VENV_DIR = path.join(__dirname, 'venv');
 const REQUIREMENTS_FILE = path.join(__dirname, 'requirements.txt');
 
 // ---------- PYTHON ENV SETUP ----------
-if (!fs.existsSync(VENV_DIR)) {
-  console.log('[Python] Creating virtual environment...');
-  execSync(`python -m venv venv`, { cwd: __dirname, stdio: 'inherit' });
-}
+// if (!fs.existsSync(VENV_DIR)) {
+//   console.log('[Python] Creating virtual environment...');
+//   execSync(`python -m venv venv`, { cwd: __dirname, stdio: 'inherit' });
+// }
 
-console.log('[Python] Installing dependencies...');
-const pipCmd = process.platform === 'win32'
-  ? path.join(VENV_DIR, 'Scripts', 'pip')
-  : path.join(VENV_DIR, 'bin', 'pip');
-execSync(`"${pipCmd}" install -r requirements.txt`, { cwd: __dirname, stdio: 'inherit' });
+// console.log('[Python] Installing dependencies...');
+// const pipCmd = process.platform === 'win32'
+//   ? path.join(VENV_DIR, 'Scripts', 'pip')
+//   : path.join(VENV_DIR, 'bin', 'pip');
+// execSync(`"${pipCmd}" install -r requirements.txt`, { cwd: __dirname, stdio: 'inherit' });
 
-console.log('[Scale] Starting scale_service.py...');
-const pythonCmd = process.platform === 'win32'
-  ? path.join(VENV_DIR, 'Scripts', 'python')
-  : path.join(VENV_DIR, 'bin', 'python');
-const scaleProcess = spawn(`"${pythonCmd}"`, [SCALE_SCRIPT], {
-  cwd: __dirname,
-  shell: true
-});
-scaleProcess.stdout.on('data', (data) => console.log(`[Scale] ${data}`));
-scaleProcess.stderr.on('data', (data) => console.error(`[Scale ERROR] ${data}`));
-scaleProcess.on('exit', (code) => console.log(`[Scale] Python process exited with code ${code}`));
+// console.log('[Scale] Starting scale_service.py...');
+// const pythonCmd = process.platform === 'win32'
+//   ? path.join(VENV_DIR, 'Scripts', 'python')
+//   : path.join(VENV_DIR, 'bin', 'python');
+// const scaleProcess = spawn(`"${pythonCmd}"`, [SCALE_SCRIPT], {
+//   cwd: __dirname,
+//   shell: true
+// });
+// scaleProcess.stdout.on('data', (data) => console.log(`[Scale] ${data}`));
+// scaleProcess.stderr.on('data', (data) => console.error(`[Scale ERROR] ${data}`));
+// scaleProcess.on('exit', (code) => console.log(`[Scale] Python process exited with code ${code}`));
 
 // ---------- PRINT API ----------
 app.post('/print-label', async (req, res) => {
@@ -95,5 +95,5 @@ app.post('/print-label', async (req, res) => {
 const PORT = 9999;
 app.listen(PORT, () => {
   console.log(`\n✅ Print agent running on http://localhost:${PORT}`);
-  console.log(`↪ Scale service available at http://localhost:8000/get_weight\n`);
+  // console.log(`↪ Scale service available at http://localhost:8000/get_weight\n`);
 });
