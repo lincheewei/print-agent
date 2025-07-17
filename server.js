@@ -47,7 +47,7 @@ const REQUIREMENTS_FILE = path.join(__dirname, 'requirements.txt');
 async function generateLabelImageFromData(labelData) {
   const outputPath = path.join(__dirname, `label_${Date.now()}.png`);
 const svg = `
-    <svg width="576" height="560" xmlns="http://www.w3.org/2000/svg">
+    <svg width="300" height="250" xmlns="http://www.w3.org/2000/svg">
       <style>
         text { font-family: Helvetica, sans-serif; font-size: 12px; }
         .header { font-size: 16px; font-weight: bold; text-anchor: middle; }
@@ -55,7 +55,7 @@ const svg = `
         .value { font-size: 10px; }
       </style>
 
-      <rect x="0" y="0" width="172.8" height="50" fill="white" stroke="black" stroke-width="1"/>
+      <rect x="0" y="0" width="576" height="560" fill="white" stroke="black" stroke-width="1"/>
       <text class="header" x="288" y="24">WORK ORDER LABEL</text>
 
       <!-- Row 1 -->
@@ -96,8 +96,8 @@ const svg = `
     </svg>
   `;
 
-await sharp(Buffer.from(svg), { density: 203 })
-  .resize(576, 560, {
+  await sharp(Buffer.from(svg), { density: 203 })
+  .resize(300, 250, {
     fit: 'contain',
     background: '#FFFFFF',
   })
@@ -112,7 +112,7 @@ async function convertImageToEscposRaster(imagePath) {
   const ESC = '\x1B';
   const GS = '\x1D';
   const { data, info } = await sharp(imagePath)
-    .resize(576, 560, { fit: 'fill' })         // 强制输出 576×560 px
+    .resize(300, 250, { fit: 'contain' })         // 强制输出 576×560 px
     .threshold(180)                            // 更明确的黑白转换阈值
     .flatten({ background: '#FFFFFF' })        // 避免透明像素导致锯齿
     .raw()
