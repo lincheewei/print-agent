@@ -118,7 +118,7 @@ async function generateLabelImageFromData(labelData) {
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      width: 250px; height: 230px;
+      width: 80px; height: 70px;
       font-family: Helvetica, sans-serif;
       font-size: 10px;
       padding: 4px;
