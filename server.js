@@ -114,18 +114,17 @@ async function generateLabelImageFromData(labelData) {
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext('2d');
 
-  // 背景白
+  // Background
   ctx.fillStyle = '#FFFFFF';
   ctx.fillRect(0, 0, width, height);
 
-  // 标题
+  // Title
   ctx.fillStyle = '#000000';
   ctx.font = 'bold 18px Arial';
   ctx.fillText('WORK ORDER LABEL', 180, 30);
 
-  // 内容
+  // Content
   ctx.font = '10px Arial';
-
   ctx.fillText(`W.O. NO.: ${labelData.coNumber}`, 10, 70);
   ctx.fillText(`PART NAME: ${labelData.partName}`, 290, 70);
   ctx.fillText(`DATE ISSUE: ${labelData.dateIssue}`, 10, 110);
@@ -135,7 +134,7 @@ async function generateLabelImageFromData(labelData) {
   ctx.fillText(`QTY: ${labelData.qty}`, 290, 190);
   ctx.fillText(`REMARKS: ${labelData.remarks}`, 10, 230);
 
-  // 可选：加边框线
+  // Optional border
   ctx.strokeRect(0, 0, width, height);
 
   const filePath = path.join(__dirname, `label_${Date.now()}.png`);
@@ -149,9 +148,9 @@ async function convertImageToEscposRaster(imagePath) {
   const ESC = '\x1B';
   const GS = '\x1D';
   const { data, info } = await sharp(imagePath)
-    .resize(576, 560, { fit: 'contain' })         // 强制输出 576×560 px
-    .threshold(180)                            // 更明确的黑白转换阈值
-    .flatten({ background: '#FFFFFF' })        // 避免透明像素导致锯齿
+    .resize(576, 560, { fit: 'contain' })
+    .threshold(180)
+    .flatten({ background: '#FFFFFF' })
     .raw()
     .toBuffer({ resolveWithObject: true });
 
@@ -185,6 +184,7 @@ async function convertImageToEscposRaster(imagePath) {
   raster = Buffer.concat([raster, Buffer.from(GS + 'V' + '\x01', 'binary')]);
   return raster;
 }
+
 
 app.post('/print-label', async (req, res) => {
   const { printerType = 'hprt', tspl, escpos, printerIP, labelData } = req.body;
