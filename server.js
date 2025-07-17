@@ -111,7 +111,6 @@ async function convertImageToEscposRaster(imagePath) {
   return raster;
 }
 
-// ---------- PRINT API ----------
 app.post('/print-label', async (req, res) => {
   const { printerType = 'hprt', tspl, escpos, printerIP, labelData } = req.body;
 
@@ -121,9 +120,9 @@ app.post('/print-label', async (req, res) => {
 
       const file = path.join(__dirname, `tsc_${Date.now()}.txt`);
       await fs.promises.writeFile(file, tspl, 'ascii');
-      const printCmd = `copy /b "${file}" \\localhost\${PRINTER_SHARE_NAME}`;
+      const printCmd = `copy /b "${file}" \\\\localhost\\${PRINTER_SHARE_NAME}`;
       execSync(printCmd, { stdio: 'inherit', shell: true });
-      fs.unlink(file, () => {});
+      fs.unlink(file, () => { });
       return res.json({ success: true, message: 'TSC label sent to printer.' });
     }
 
@@ -133,9 +132,9 @@ app.post('/print-label', async (req, res) => {
       if (labelData) {
         const imagePath = await generateLabelImageFromData(labelData);
         finalData = await convertImageToEscposRaster(imagePath);
-        fs.unlink(imagePath, () => {}); // optional cleanup
+        fs.unlink(imagePath, () => { });
       } else if (escpos) {
-        finalData = Buffer.from(escpos, 'ascii');
+        finalData = Buffer.isBuffer(escpos) ? escpos : Buffer.from(escpos, 'binary');
       } else {
         return res.status(400).json({ success: false, error: 'Missing ESC/POS or labelData.' });
       }
@@ -153,10 +152,10 @@ app.post('/print-label', async (req, res) => {
         return res.json({ success: true, message: 'HPRT label sent via TCP.' });
       } else {
         const file = path.join(__dirname, `hprt_${Date.now()}.bin`);
-        await fs.promises.writeFile(file, finalData);
-        const printCmd = `copy /b "${file}" \\localhost\${PRINTER_SHARE_NAME}`;
+        await fs.promises.writeFile(file, finalData); // ⛔ 不要加编码
+        const printCmd = `copy /b "${file}" \\\\localhost\\${PRINTER_SHARE_NAME}`;
         execSync(printCmd, { stdio: 'inherit', shell: true });
-        fs.unlink(file, () => {});
+        fs.unlink(file, () => { });
         return res.json({ success: true, message: 'HPRT label sent to shared printer.' });
       }
     }
