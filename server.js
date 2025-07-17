@@ -46,23 +46,55 @@ const REQUIREMENTS_FILE = path.join(__dirname, 'requirements.txt');
 // ---------- UTILITY: Generate dummy label image (replace with dynamic layout if needed) ----------
 async function generateLabelImageFromData(labelData) {
   const outputPath = path.join(__dirname, `label_${Date.now()}.png`);
-  const svg = `
-  <svg width="576" height="560" xmlns="http://www.w3.org/2000/svg">
-    <style>
-      text { font-family: Arial, sans-serif; font-size: 22px; }
-    </style>
-    <rect x="0" y="0" width="576" height="560" fill="white" stroke="black" stroke-width="2"/>
-    <text x="150" y="40">WORK ORDER LABEL</text>
-    <text x="10" y="90">W.O. NO.: ${labelData.coNumber}</text>
-    <text x="300" y="90">PART NAME: ${labelData.partName}</text>
-    <text x="10" y="140">DATE ISSUE: ${labelData.dateIssue}</text>
-    <text x="10" y="190">STOCK CODE: ${labelData.stockCode}</text>
-    <text x="300" y="190">PROCESS CODE: ${labelData.processCode}</text>
-    <text x="10" y="240">EMP. NO.: ${labelData.empNo}</text>
-    <text x="300" y="240">QTY.: ${labelData.qty}</text>
-    <text x="10" y="290">REMARKS: ${labelData.remarks}</text>
-  </svg>
-`;
+const svg = `
+    <svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
+      <style>
+        text { font-family: Helvetica, sans-serif; font-size: 12px; }
+        .header { font-size: 16px; font-weight: bold; text-anchor: middle; }
+        .label { font-size: 8px; font-weight: bold; text-decoration: underline; }
+        .value { font-size: 10px; }
+      </style>
+
+      <rect x="0" y="0" width="576" height="560" fill="white" stroke="black" stroke-width="1"/>
+      <text class="header" x="288" y="24">WORK ORDER LABEL</text>
+
+      <!-- Row 1 -->
+      <rect x="0" y="40" width="172.8" height="40" stroke="black" fill="none"/>
+      <text class="label" x="4" y="52">W.O. NO. :</text>
+      <text class="value" x="4" y="72">${labelData.coNumber}</text>
+
+      <rect x="172.8" y="40" width="403.2" height="40" stroke="black" fill="none"/>
+      <text class="label" x="176.8" y="52">PART NAME :</text>
+      <text class="value" x="176.8" y="72">${labelData.partName}</text>
+
+      <!-- Row 2 -->
+      <rect x="0" y="80" width="172.8" height="40" stroke="black" fill="none"/>
+      <text class="label" x="4" y="92">DATE ISSUE :</text>
+      <text class="value" x="4" y="112">${labelData.dateIssue}</text>
+
+      <rect x="172.8" y="80" width="172.8" height="40" stroke="black" fill="none"/>
+      <text class="label" x="176.8" y="92">STOCK CODE :</text>
+      <text class="value" x="176.8" y="112">${labelData.stockCode}</text>
+
+      <rect x="345.6" y="80" width="230.4" height="40" stroke="black" fill="none"/>
+      <text class="label" x="349.6" y="92">PROCESS CODE / NO. :</text>
+      <text class="value" x="349.6" y="112">${labelData.processCode}</text>
+
+      <!-- Row 3 -->
+      <rect x="0" y="120" width="172.8" height="40" stroke="black" fill="none"/>
+      <text class="label" x="4" y="132">EMP. NO. :</text>
+      <text class="value" x="4" y="152">${labelData.empNo}</text>
+
+      <rect x="172.8" y="120" width="403.2" height="40" stroke="black" fill="none"/>
+      <text class="label" x="176.8" y="132">QTY :</text>
+      <text class="value" x="176.8" y="152">${labelData.qty}</text>
+
+      <!-- Row 4 (Remarks full width) -->
+      <rect x="0" y="160" width="576" height="80" stroke="black" fill="none"/>
+      <text class="label" x="4" y="172">REMARKS :</text>
+      <text class="value" x="4" y="192">${labelData.remarks}</text>
+    </svg>
+  `;
 
   await sharp(Buffer.from(svg))
     .png()
