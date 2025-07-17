@@ -1,72 +1,92 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const net = require('net');
 const { spawn, execSync } = require('child_process');
 
 const app = express();
 app.use(express.json());
 
 // ---------- CONFIG ----------
-const PRINTER_SHARE_NAME = 'TSC_TE200'; // <-- Update to your shared printer name
+const PRINTER_SHARE_NAME = 'TSC_TE200'; // <-- Update if needed
+const DEFAULT_HPRT_IP = '192.168.1.88'; // Optional: default wireless printer IP
 const SCALE_SCRIPT = path.join(__dirname, 'scale_service.py');
 const VENV_DIR = path.join(__dirname, 'venv');
 const REQUIREMENTS_FILE = path.join(__dirname, 'requirements.txt');
 
 // ---------- PYTHON ENV SETUP ----------
-
-// 1. Create virtual environment if not exists
 if (!fs.existsSync(VENV_DIR)) {
   console.log('[Python] Creating virtual environment...');
   execSync(`python -m venv venv`, { cwd: __dirname, stdio: 'inherit' });
 }
 
-// 2. Install dependencies from requirements.txt
 console.log('[Python] Installing dependencies...');
 const pipCmd = process.platform === 'win32'
   ? path.join(VENV_DIR, 'Scripts', 'pip')
   : path.join(VENV_DIR, 'bin', 'pip');
 execSync(`"${pipCmd}" install -r requirements.txt`, { cwd: __dirname, stdio: 'inherit' });
 
-// 3. Start scale_service.py using the venv Python
 console.log('[Scale] Starting scale_service.py...');
 const pythonCmd = process.platform === 'win32'
   ? path.join(VENV_DIR, 'Scripts', 'python')
   : path.join(VENV_DIR, 'bin', 'python');
-
 const scaleProcess = spawn(`"${pythonCmd}"`, [SCALE_SCRIPT], {
   cwd: __dirname,
   shell: true
 });
-
-scaleProcess.stdout.on('data', (data) => {
-  console.log(`[Scale] ${data}`);
-});
-scaleProcess.stderr.on('data', (data) => {
-  console.error(`[Scale ERROR] ${data}`);
-});
-scaleProcess.on('exit', (code) => {
-  console.log(`[Scale] Python process exited with code ${code}`);
-});
+scaleProcess.stdout.on('data', (data) => console.log(`[Scale] ${data}`));
+scaleProcess.stderr.on('data', (data) => console.error(`[Scale ERROR] ${data}`));
+scaleProcess.on('exit', (code) => console.log(`[Scale] Python process exited with code ${code}`));
 
 // ---------- PRINT API ----------
 app.post('/print-label', async (req, res) => {
-  const tspl = req.body.tspl;
-  if (!tspl) return res.status(400).json({ success: false, error: 'Missing TSPL data.' });
+  const { printerType = 'tsc', tspl, escpos, printerIP } = req.body;
 
   try {
-    const uniqueFile = path.join(__dirname, `label_${Date.now()}_${Math.random().toString(36).slice(2)}.txt`);
-    await fs.promises.writeFile(uniqueFile, tspl);
+    if (printerType === 'tsc') {
+      if (!tspl) return res.status(400).json({ success: false, error: 'Missing TSPL data.' });
 
-    const printCmd = `copy /b "${uniqueFile}" "\\\\localhost\\${PRINTER_SHARE_NAME}"`;
-    console.log('[Print] Executing:', printCmd);
+      const file = path.join(__dirname, `tsc_${Date.now()}.txt`);
+      await fs.promises.writeFile(file, tspl, 'ascii');
 
-    execSync(printCmd, { stdio: 'inherit', shell: true });
-    fs.unlink(uniqueFile, () => {}); // Clean up temp file
+      const printCmd = `copy /b "${file}" "\\\\localhost\\${PRINTER_SHARE_NAME}"`;
+      console.log('[Print] (TSC) Executing:', printCmd);
+      execSync(printCmd, { stdio: 'inherit', shell: true });
+      fs.unlink(file, () => {});
+      return res.json({ success: true, message: 'TSC label sent to printer.' });
+    }
 
-    res.json({ success: true, message: 'Label sent to printer.' });
+    if (printerType === 'hprt') {
+      if (!escpos) return res.status(400).json({ success: false, error: 'Missing ESC/POS data.' });
+
+      if (printerIP) {
+        // Print via TCP (wireless mode)
+        const client = new net.Socket();
+        client.connect(9100, printerIP, () => {
+          client.write(escpos, 'ascii');
+          client.end();
+        });
+        client.on('error', (err) => {
+          console.error('[Print ERROR] TCP:', err);
+          return res.status(500).json({ success: false, error: 'TCP print failed' });
+        });
+        return res.json({ success: true, message: 'HPRT label sent via TCP.' });
+      } else {
+        // Print via Windows shared printer
+        const file = path.join(__dirname, `hprt_${Date.now()}.txt`);
+        await fs.promises.writeFile(file, escpos, 'ascii');
+        const printCmd = `copy /b "${file}" "\\\\localhost\\${PRINTER_SHARE_NAME}"`;
+        console.log('[Print] (HPRT Shared) Executing:', printCmd);
+        execSync(printCmd, { stdio: 'inherit', shell: true });
+        fs.unlink(file, () => {});
+        return res.json({ success: true, message: 'HPRT label sent to shared printer.' });
+      }
+    }
+
+    return res.status(400).json({ success: false, error: 'Unknown printer type.' });
   } catch (err) {
     console.error('[Print ERROR]', err);
-    res.status(500).json({ success: false, error: 'Print failed. Check logs.' });
+    return res.status(500).json({ success: false, error: 'Printing failed.' });
   }
 });
 
