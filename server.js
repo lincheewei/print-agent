@@ -97,7 +97,7 @@ const svg = `
   `;
 
   await sharp(Buffer.from(svg), { density: 203 })
-  .resize(300, 250, {
+  .resize(576, 560, {
     fit: 'contain',
     background: '#FFFFFF',
   })
