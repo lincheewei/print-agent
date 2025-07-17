@@ -2,6 +2,8 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const net = require('net');
+const sharp = require('sharp');
+
 const { spawn, execSync } = require('child_process');
 
 const app = express();
