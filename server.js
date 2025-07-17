@@ -96,9 +96,13 @@ const svg = `
     </svg>
   `;
 
-  await sharp(Buffer.from(svg))
-    .png()
-    .toFile(outputPath);
+await sharp(Buffer.from(svg), { density: 203 })
+  .resize(576, 560, {
+    fit: 'contain',
+    background: '#FFFFFF',
+  })
+  .png()
+  .toFile(outputPath);
   return outputPath;
 }
 
