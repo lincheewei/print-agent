@@ -112,7 +112,7 @@ async function convertImageToEscposRaster(imagePath) {
   const ESC = '\x1B';
   const GS = '\x1D';
   const { data, info } = await sharp(imagePath)
-    .resize(300, 250, { fit: 'contain' })         // 强制输出 576×560 px
+    .resize(576, 560, { fit: 'contain' })         // 强制输出 576×560 px
     .threshold(180)                            // 更明确的黑白转换阈值
     .flatten({ background: '#FFFFFF' })        // 避免透明像素导致锯齿
     .raw()
