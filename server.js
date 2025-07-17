@@ -47,7 +47,7 @@ const REQUIREMENTS_FILE = path.join(__dirname, 'requirements.txt');
 async function generateLabelImageFromData(labelData) {
   const outputPath = path.join(__dirname, `label_${Date.now()}.png`);
 const svg = `
-    <svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
+    <svg width="576" height="560" xmlns="http://www.w3.org/2000/svg">
       <style>
         text { font-family: Helvetica, sans-serif; font-size: 12px; }
         .header { font-size: 16px; font-weight: bold; text-anchor: middle; }
