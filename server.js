@@ -122,6 +122,8 @@ async function generateLabelImageFromData(labelData) {
       font-family: Helvetica, sans-serif;
       font-size: 10px;
       padding: 4px;
+        transform: rotate(-90deg);        /* 可选，仅视觉调试 */
+  transform-origin: top left;
     }
 
     .header {
@@ -239,7 +241,12 @@ async function generateLabelImageFromData(labelData) {
 
   const browser = await puppeteer.launch({ headless: 'new' });
   const page = await browser.newPage();
-  await page.setViewport({ width: 576, height: 560 });
+  await page.setViewport({ 
+    width: 576,
+     height: 560,
+       isLandscape: true  // 可选标识，仅文档说明
+
+   });
   await page.setContent(html);
   await page.screenshot({ path: outputPath });
   await browser.close();
