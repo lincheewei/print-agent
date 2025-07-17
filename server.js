@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const net = require('net');
 const sharp = require('sharp');
+const puppeteer = require('puppeteer');
 
 const { spawn, execSync } = require('child_process');
 
@@ -109,38 +110,44 @@ const { createCanvas, loadImage } = require('canvas');
 
 
 async function generateLabelImageFromData(labelData) {
-  const width = 576;
-  const height = 560;
-  const canvas = createCanvas(width, height);
-  const ctx = canvas.getContext('2d');
+  const outputPath = path.join(__dirname, `label_${Date.now()}.png`);
+  const html = `
+    <html>
+    <head>
+      <style>
+        body { margin: 0; padding: 0; font-family: Arial, sans-serif; width: 576px; height: 560px; }
+        .container { width: 576px; height: 560px; padding: 10px; box-sizing: border-box; border: 1px solid #000; }
+        .header { text-align: center; font-weight: bold; font-size: 18px; margin-bottom: 10px; }
+        .row { display: flex; font-size: 10px; margin-bottom: 4px; }
+        .label { font-weight: bold; margin-right: 4px; min-width: 90px; }
+        .section { border-top: 1px solid black; margin-top: 6px; padding-top: 6px; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">WORK ORDER LABEL</div>
+        <div class="row"><div class="label">W.O. NO.:</div> <div>${labelData.coNumber}</div></div>
+        <div class="row"><div class="label">PART NAME:</div> <div>${labelData.partName}</div></div>
+        <div class="row"><div class="label">DATE ISSUE:</div> <div>${labelData.dateIssue}</div></div>
+        <div class="row"><div class="label">STOCK CODE:</div> <div>${labelData.stockCode}</div></div>
+        <div class="row"><div class="label">PROCESS CODE:</div> <div>${labelData.processCode}</div></div>
+        <div class="row"><div class="label">EMP. NO.:</div> <div>${labelData.empNo}</div></div>
+        <div class="row"><div class="label">QTY:</div> <div>${labelData.qty}</div></div>
+        <div class="section">
+          <div class="row"><div class="label">REMARKS:</div> <div>${labelData.remarks}</div></div>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
 
-  // Background
-  ctx.fillStyle = '#FFFFFF';
-  ctx.fillRect(0, 0, width, height);
-
-  // Title
-  ctx.fillStyle = '#000000';
-  ctx.font = 'bold 18px Arial';
-  ctx.fillText('WORK ORDER LABEL', 180, 30);
-
-  // Content
-  ctx.font = '10px Arial';
-  ctx.fillText(`W.O. NO.: ${labelData.coNumber}`, 10, 70);
-  ctx.fillText(`PART NAME: ${labelData.partName}`, 290, 70);
-  ctx.fillText(`DATE ISSUE: ${labelData.dateIssue}`, 10, 110);
-  ctx.fillText(`STOCK CODE: ${labelData.stockCode}`, 10, 150);
-  ctx.fillText(`PROCESS CODE: ${labelData.processCode}`, 290, 150);
-  ctx.fillText(`EMP. NO.: ${labelData.empNo}`, 10, 190);
-  ctx.fillText(`QTY: ${labelData.qty}`, 290, 190);
-  ctx.fillText(`REMARKS: ${labelData.remarks}`, 10, 230);
-
-  // Optional border
-  ctx.strokeRect(0, 0, width, height);
-
-  const filePath = path.join(__dirname, `label_${Date.now()}.png`);
-  const buffer = canvas.toBuffer('image/png');
-  fs.writeFileSync(filePath, buffer);
-  return filePath;
+  const browser = await puppeteer.launch({ headless: 'new' });
+  const page = await browser.newPage();
+  await page.setViewport({ width: 576, height: 560 });
+  await page.setContent(html);
+  await page.screenshot({ path: outputPath });
+  await browser.close();
+  return outputPath;
 }
 
 // ---------- UTILITY: Convert PNG to ESC/POS Raster ----------
