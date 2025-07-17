@@ -118,12 +118,10 @@ async function generateLabelImageFromData(labelData) {
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      width: 576px; height: 560px;
+      width: 250px; height: 230px;
       font-family: Helvetica, sans-serif;
       font-size: 10px;
       padding: 4px;
-        transform: rotate(-90deg);        /* 可选，仅视觉调试 */
-  transform-origin: top left;
     }
 
     .header {
@@ -243,9 +241,7 @@ async function generateLabelImageFromData(labelData) {
   const page = await browser.newPage();
   await page.setViewport({ 
     width: 576,
-     height: 560,
-       isLandscape: true  // 可选标识，仅文档说明
-
+     height: 560
    });
   await page.setContent(html);
   await page.screenshot({ path: outputPath });
