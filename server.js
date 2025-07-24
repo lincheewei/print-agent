@@ -48,21 +48,21 @@ scaleProcess.on('exit', (code) => console.log(`[Scale] Python process exited wit
 // ---------- WEBSOCKET PRINT HANDLER ----------
 async function handleWebSocketPrintJob(printData) {
   const { printerType, tspl, escpos, printerIP, labelData } = printData;
-  
+
   console.log(`📄 Received WebSocket print job: ${printerType}`);
-  
+
   try {
     if (printerType === 'tsc') {
       PRINTER_SHARE_NAME = 'TSC_TE200';
-      
+
       if (!labelData) throw new Error('Missing TSPL data');
 
       const file = path.join(__dirname, `tsc_${Date.now()}.txt`);
       await fs.promises.writeFile(file, labelData, 'ascii');
       const printCmd = `copy /b "${file}" \\\\localhost\\${PRINTER_SHARE_NAME}`;
       execSync(printCmd, { stdio: 'inherit', shell: true });
-      fs.unlink(file, () => {});
-      
+      fs.unlink(file, () => { });
+
       console.log('✅ TSC print job completed via WebSocket');
       return { success: true, message: 'TSC label sent to printer.' };
     }
@@ -74,7 +74,7 @@ async function handleWebSocketPrintJob(printData) {
       if (labelData) {
         const imagePath = await generateLabelImageFromData(labelData);
         finalData = await convertImageToEscposRaster(imagePath);
-        fs.unlink(imagePath, () => {});
+        fs.unlink(imagePath, () => { });
       } else if (escpos) {
         finalData = Buffer.isBuffer(escpos) ? escpos : Buffer.from(escpos, 'binary');
       } else {
@@ -95,15 +95,15 @@ async function handleWebSocketPrintJob(printData) {
         await fs.promises.writeFile(file, finalData);
         const printCmd = `copy /b "${file}" \\\\localhost\\${PRINTER_SHARE_NAME}`;
         execSync(printCmd, { stdio: 'inherit', shell: true });
-        fs.unlink(file, () => {});
+        fs.unlink(file, () => { });
       }
-      
+
       console.log('✅ HPRT print job completed via WebSocket');
       return { success: true, message: 'HPRT label sent to printer.' };
     }
 
     throw new Error('Unknown printer type');
-    
+
   } catch (error) {
     console.error('❌ WebSocket print job failed:', error);
     return { success: false, error: error.message };
@@ -119,24 +119,22 @@ function connectToRelay() {
   ws.on('open', () => {
     console.log('🔗 Connected to relay server');
     // Register this agent
-    ws.send(JSON.stringify({ 
-      type: 'register', 
-      agentId: AGENT_ID 
+    ws.send(JSON.stringify({
+      type: 'register',
+      agentId: AGENT_ID
     }));
   });
 
   ws.on('message', async (message) => {
     try {
       const data = JSON.parse(message);
-      
+
       if (data.type === 'registered') {
         console.log(`✅ Successfully registered as: ${data.agentId}`);
       }
-      
+
       if (data.type === 'print') {
         const result = await handleWebSocketPrintJob(data.printData);
-        
-        // Send result back to relay server
         ws.send(JSON.stringify({
           type: 'print_result',
           success: result.success,
@@ -144,14 +142,29 @@ function connectToRelay() {
           error: result.error
         }));
       }
-      
+
+      if (data.type === 'get_scale' && data.requestId) {
+        try {
+          const weight = await getScaleReading();
+          ws.send(JSON.stringify({
+            type: 'scale_reading',
+            requestId: data.requestId,
+            reading: weight
+          }));
+        } catch (err) {
+          ws.send(JSON.stringify({
+            type: 'scale_reading',
+            requestId: data.requestId,
+            error: err.message
+          }));
+        }
+      }
+
     } catch (error) {
       console.error('❌ WebSocket message error:', error);
-      // Send error back to relay server
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
-          type: 'print_result',
-          success: false,
+          type: 'error',
           error: error.message
         }));
       }
@@ -175,7 +188,7 @@ app.post('/print-label', async (req, res) => {
   console.log("Printing via HTTP: " + printerType);
   try {
     if (printerType === 'tsc') {
-       PRINTER_SHARE_NAME = 'TSC_TE200';
+      PRINTER_SHARE_NAME = 'TSC_TE200';
 
       if (!labelData) return res.status(400).json({ success: false, error: 'Missing TSPL data.' });
 
@@ -189,7 +202,7 @@ app.post('/print-label', async (req, res) => {
 
     if (printerType === 'hprt') {
       let finalData;
-       PRINTER_SHARE_NAME = 'HPRT_TP805L';
+      PRINTER_SHARE_NAME = 'HPRT_TP805L';
 
       if (labelData) {
         const imagePath = await generateLabelImageFromData(labelData);
