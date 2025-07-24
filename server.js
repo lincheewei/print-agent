@@ -47,6 +47,7 @@ scaleProcess.on('exit', (code) => console.log(`[Scale] Python process exited wit
 app.post('/print-label', async (req, res) => {
   const { printerType, tspl, escpos, printerIP, labelData } = req.body;
 
+  console.log("Printing" + printerType);
   try {
     if (printerType === 'tsc') {
       if (!tspl) return res.status(400).json({ success: false, error: 'Missing TSPL data.' });
