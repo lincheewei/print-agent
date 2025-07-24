@@ -50,10 +50,10 @@ app.post('/print-label', async (req, res) => {
   console.log("Printing" + printerType);
   try {
     if (printerType === 'tsc') {
-      if (!tspl) return res.status(400).json({ success: false, error: 'Missing TSPL data.' });
+      if (!labelData) return res.status(400).json({ success: false, error: 'Missing TSPL data.' });
 
       const file = path.join(__dirname, `tsc_${Date.now()}.txt`);
-      await fs.promises.writeFile(file, tspl, 'ascii');
+      await fs.promises.writeFile(file, labelData, 'ascii');
       const printCmd = `copy /b "${file}" \\\\localhost\\${PRINTER_SHARE_NAME}`;
       execSync(printCmd, { stdio: 'inherit', shell: true });
       fs.unlink(file, () => { });
