@@ -293,7 +293,7 @@ async function convertImageToEscposRaster(imagePath) {
 
 
 app.post('/print-label', async (req, res) => {
-  const { printerType = 'hprt', tspl, escpos, printerIP, labelData } = req.body;
+  const { printerType = 'tsc', tspl, escpos, printerIP, labelData } = req.body;
 
   try {
     if (printerType === 'tsc') {
