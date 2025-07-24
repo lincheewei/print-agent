@@ -147,6 +147,7 @@ function connectToRelay() {
         console.log("getting scale ws")
         try {
           const weight = await getScaleReading();
+          console.log(weight);
           ws.send(JSON.stringify({
             type: 'scale_reading',
             requestId: data.requestId,
