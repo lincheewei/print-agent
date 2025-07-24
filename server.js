@@ -10,7 +10,7 @@ const app = express();
 app.use(express.json());
 
 // ---------- CONFIG ----------
-const PRINTER_SHARE_NAME = 'TSC_TE200'; // <-- Update if needed
+let PRINTER_SHARE_NAME = 'TSC_TE200'; // <-- Update if needed
 // const PRINTER_SHARE_NAME = 'HPRT_TP805L'; // <-- Update if needed
 const DEFAULT_HPRT_IP = '192.168.1.88'; // Optional: default wireless printer IP
 const SCALE_SCRIPT = path.join(__dirname, 'scale_service.py');
