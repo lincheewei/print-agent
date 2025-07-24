@@ -3,47 +3,99 @@ const fs = require('fs');
 const path = require('path');
 const net = require('net');
 const WebSocket = require('ws');
+const axios = require('axios');
+const SerialPort = require('serialport');
+const Readline = require('@serialport/parser-readline');
 
-const { spawn, execSync } = require('child_process');
+const { execSync } = require('child_process');
 
 const app = express();
 app.use(express.json());
 
 // ---------- CONFIG ----------
-let PRINTER_SHARE_NAME = 'TSC_TE200'; // <-- Update if needed
-// const PRINTER_SHARE_NAME = 'HPRT_TP805L'; // <-- Update if needed
-const DEFAULT_HPRT_IP = '192.168.1.88'; // Optional: default wireless printer IP
-const SCALE_SCRIPT = path.join(__dirname, 'scale_service.py');
-const VENV_DIR = path.join(__dirname, 'venv');
-const REQUIREMENTS_FILE = path.join(__dirname, 'requirements.txt');
+let PRINTER_SHARE_NAME = 'TSC_TE200';
+const DEFAULT_HPRT_IP = '192.168.1.88';
 
 // ---------- WEBSOCKET CONFIG ----------
-const AGENT_ID = 'warehouse-printer-001'; // Unique ID for this agent
+const AGENT_ID = 'warehouse-printer-001';
 const RELAY_SERVER_WS = 'ws://ec2-43-216-11-51.ap-southeast-5.compute.amazonaws.com:8080';
 
-// ---------- PYTHON ENV SETUP ----------
-if (!fs.existsSync(VENV_DIR)) {
-  console.log('[Python] Creating virtual environment...');
-  execSync(`python -m venv venv`, { cwd: __dirname, stdio: 'inherit' });
+// ---------- SCALE CONFIG ----------
+const SCALE_PORT = process.env.SCALE_COM || 'COM7';
+const SCALE_BAUD = parseInt(process.env.SCALE_BAUD || '1200', 10);
+const MODE_AUTO = false; // Set to true if your scale is in AUTO stream mode
+
+let latestRecord = null;
+
+// ---------- SCALE SETUP ----------
+const port = new SerialPort(SCALE_PORT, {
+  baudRate: SCALE_BAUD,
+  autoOpen: false,
+});
+
+const parser = port.pipe(new Readline({ delimiter: '\r\n' }));
+
+port.open((err) => {
+  if (err) {
+    console.error('[SCALE] Failed to open port:', err.message);
+    console.log('[SCALE] Scale functionality will be disabled');
+    return;
+  }
+  console.log(`[SCALE] Port ${SCALE_PORT} opened at ${SCALE_BAUD} baud`);
+});
+
+let buffer = [];
+
+parser.on('data', (line) => {
+  if (MODE_AUTO) {
+    // AUTO mode: each frame is one line
+    const record = parseTicket([line]);
+    if (record) {
+      latestRecord = record;
+      console.log('[SCALE] New record:', latestRecord);
+    }
+    return;
+  }
+
+  // MANU-P mode: build a 4/5-line ticket ending with 'PCS:'
+  buffer.push(line);
+  if (line.trim().startsWith('PCS:')) {
+    const record = parseTicket(buffer);
+    buffer = [];
+    if (record) {
+      latestRecord = record;
+      console.log('[SCALE] New record:', latestRecord);
+    }
+  }
+});
+
+function parseTicket(lines) {
+  const joined = lines.join('\n');
+  const snMatch = /SN\.(\d+)/.exec(joined);
+  const netMatch = /NET:\s*([-\d.]+)\s*kg/i.exec(joined);
+  const uwMatch = /U\/W:\s*([-\d.]+)\s*g/i.exec(joined);
+  const pcsMatch = /PCS:\s*(\d+)/i.exec(joined);
+
+  if (!(snMatch && netMatch && uwMatch && pcsMatch)) {
+    return null;
+  }
+
+  return {
+    timestamp: new Date().toISOString(),
+    serial_no: parseInt(snMatch[1], 10),
+    net_kg: parseFloat(netMatch[1]),
+    unit_weight_g: parseFloat(uwMatch[1]),
+    pcs: parseInt(pcsMatch[1], 10),
+  };
 }
 
-console.log('[Python] Installing dependencies...');
-const pipCmd = process.platform === 'win32'
-  ? path.join(VENV_DIR, 'Scripts', 'pip')
-  : path.join(VENV_DIR, 'bin', 'pip');
-execSync(`"${pipCmd}" install -r requirements.txt`, { cwd: __dirname, stdio: 'inherit' });
-
-console.log('[Scale] Starting scale_service.py...');
-const pythonCmd = process.platform === 'win32'
-  ? path.join(VENV_DIR, 'Scripts', 'python')
-  : path.join(VENV_DIR, 'bin', 'python');
-const scaleProcess = spawn(`"${pythonCmd}"`, [SCALE_SCRIPT], {
-  cwd: __dirname,
-  shell: true
-});
-scaleProcess.stdout.on('data', (data) => console.log(`[Scale] ${data}`));
-scaleProcess.stderr.on('data', (data) => console.error(`[Scale ERROR] ${data}`));
-scaleProcess.on('exit', (code) => console.log(`[Scale] Python process exited with code ${code}`));
+// Function to get the latest scale reading
+async function getScaleReading() {
+  if (!latestRecord) {
+    throw new Error('No scale data available');
+  }
+  return latestRecord;
+}
 
 // ---------- WEBSOCKET PRINT HANDLER ----------
 async function handleWebSocketPrintJob(printData) {
@@ -61,7 +113,7 @@ async function handleWebSocketPrintJob(printData) {
       await fs.promises.writeFile(file, labelData, 'ascii');
       const printCmd = `copy /b "${file}" \\\\localhost\\${PRINTER_SHARE_NAME}`;
       execSync(printCmd, { stdio: 'inherit', shell: true });
-      fs.unlink(file, () => { });
+      fs.unlink(file, () => {});
 
       console.log('✅ TSC print job completed via WebSocket');
       return { success: true, message: 'TSC label sent to printer.' };
@@ -74,7 +126,7 @@ async function handleWebSocketPrintJob(printData) {
       if (labelData) {
         const imagePath = await generateLabelImageFromData(labelData);
         finalData = await convertImageToEscposRaster(imagePath);
-        fs.unlink(imagePath, () => { });
+        fs.unlink(imagePath, () => {});
       } else if (escpos) {
         finalData = Buffer.isBuffer(escpos) ? escpos : Buffer.from(escpos, 'binary');
       } else {
@@ -95,7 +147,7 @@ async function handleWebSocketPrintJob(printData) {
         await fs.promises.writeFile(file, finalData);
         const printCmd = `copy /b "${file}" \\\\localhost\\${PRINTER_SHARE_NAME}`;
         execSync(printCmd, { stdio: 'inherit', shell: true });
-        fs.unlink(file, () => { });
+        fs.unlink(file, () => {});
       }
 
       console.log('✅ HPRT print job completed via WebSocket');
@@ -118,7 +170,6 @@ function connectToRelay() {
 
   ws.on('open', () => {
     console.log('🔗 Connected to relay server');
-    // Register this agent
     ws.send(JSON.stringify({
       type: 'register',
       agentId: AGENT_ID
@@ -144,16 +195,17 @@ function connectToRelay() {
       }
 
       if (data.type === 'get_scale' && data.requestId) {
-        console.log("getting scale ws")
+        console.log('📏 Getting scale reading via WebSocket');
         try {
-          const weight = await getScaleReading();
-          console.log(weight);
+          const reading = await getScaleReading();
+          console.log('📏 Scale reading:', reading);
           ws.send(JSON.stringify({
             type: 'scale_reading',
             requestId: data.requestId,
-            reading: weight
+            reading: reading
           }));
         } catch (err) {
+          console.error('❌ Scale reading error:', err.message);
           ws.send(JSON.stringify({
             type: 'scale_reading',
             requestId: data.requestId,
@@ -183,7 +235,7 @@ function connectToRelay() {
   });
 }
 
-// ---------- HTTP ENDPOINT (OPTIONAL - for backward compatibility) ----------
+// ---------- HTTP ENDPOINTS (for backward compatibility) ----------
 app.post('/print-label', async (req, res) => {
   const { printerType, tspl, escpos, printerIP, labelData } = req.body;
 
@@ -198,7 +250,7 @@ app.post('/print-label', async (req, res) => {
       await fs.promises.writeFile(file, labelData, 'ascii');
       const printCmd = `copy /b "${file}" \\\\localhost\\${PRINTER_SHARE_NAME}`;
       execSync(printCmd, { stdio: 'inherit', shell: true });
-      fs.unlink(file, () => { });
+      fs.unlink(file, () => {});
       return res.json({ success: true, message: 'TSC label sent to printer.' });
     }
 
@@ -209,7 +261,7 @@ app.post('/print-label', async (req, res) => {
       if (labelData) {
         const imagePath = await generateLabelImageFromData(labelData);
         finalData = await convertImageToEscposRaster(imagePath);
-        fs.unlink(imagePath, () => { });
+        fs.unlink(imagePath, () => {});
       } else if (escpos) {
         finalData = Buffer.isBuffer(escpos) ? escpos : Buffer.from(escpos, 'binary');
       } else {
@@ -232,7 +284,7 @@ app.post('/print-label', async (req, res) => {
         await fs.promises.writeFile(file, finalData);
         const printCmd = `copy /b "${file}" \\\\localhost\\${PRINTER_SHARE_NAME}`;
         execSync(printCmd, { stdio: 'inherit', shell: true });
-        fs.unlink(file, () => { });
+        fs.unlink(file, () => {});
         return res.json({ success: true, message: 'HPRT label sent to shared printer.' });
       }
     }
@@ -241,6 +293,16 @@ app.post('/print-label', async (req, res) => {
   } catch (err) {
     console.error('[Print ERROR]', err);
     return res.status(500).json({ success: false, error: 'Printing failed.' });
+  }
+});
+
+// Local scale reading endpoint (for backward compatibility)
+app.get('/get_weight', async (req, res) => {
+  try {
+    const reading = await getScaleReading();
+    res.json(reading);
+  } catch (err) {
+    res.status(204).send(); // No content, same as Python service
   }
 });
 
