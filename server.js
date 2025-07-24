@@ -4,8 +4,8 @@ const path = require('path');
 const net = require('net');
 const WebSocket = require('ws');
 const axios = require('axios');
-const SerialPort = require('serialport');
-const Readline = require('@serialport/parser-readline');
+const { SerialPort } = require('serialport');
+const { ReadlineParser } = require('@serialport/parser-readline');
 
 const { execSync } = require('child_process');
 
@@ -28,12 +28,13 @@ const MODE_AUTO = false; // Set to true if your scale is in AUTO stream mode
 let latestRecord = null;
 
 // ---------- SCALE SETUP ----------
-const port = new SerialPort(SCALE_PORT, {
+const port = new SerialPort({
+  path: SCALE_PORT,
   baudRate: SCALE_BAUD,
   autoOpen: false,
 });
 
-const parser = port.pipe(new Readline({ delimiter: '\r\n' }));
+const parser = port.pipe(new ReadlineParser({ delimiter: '\r\n' }));
 
 port.open((err) => {
   if (err) {
