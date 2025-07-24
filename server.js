@@ -19,7 +19,7 @@ const REQUIREMENTS_FILE = path.join(__dirname, 'requirements.txt');
 
 // ---------- WEBSOCKET CONFIG ----------
 const AGENT_ID = 'warehouse-printer-001'; // Unique ID for this agent
-const RELAY_SERVER_WS = 'ws://localhost:8080'; // Change to your relay server URL
+const RELAY_SERVER_WS = 'ws://ec2-43-216-11-51.ap-southeast-5.compute.amazonaws.com:8080';
 
 // ---------- PYTHON ENV SETUP ----------
 if (!fs.existsSync(VENV_DIR)) {
