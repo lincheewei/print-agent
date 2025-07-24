@@ -10,8 +10,8 @@ const app = express();
 app.use(express.json());
 
 // ---------- CONFIG ----------
-// const PRINTER_SHARE_NAME = 'TSC_TE200'; // <-- Update if needed
-const PRINTER_SHARE_NAME = 'HPRT_TP805L'; // <-- Update if needed
+const PRINTER_SHARE_NAME = 'TSC_TE200'; // <-- Update if needed
+// const PRINTER_SHARE_NAME = 'HPRT_TP805L'; // <-- Update if needed
 const DEFAULT_HPRT_IP = '192.168.1.88'; // Optional: default wireless printer IP
 const SCALE_SCRIPT = path.join(__dirname, 'scale_service.py');
 const VENV_DIR = path.join(__dirname, 'venv');
@@ -50,6 +50,8 @@ app.post('/print-label', async (req, res) => {
   console.log("Printing" + printerType);
   try {
     if (printerType === 'tsc') {
+       PRINTER_SHARE_NAME = 'TSC_TE200'; // <-- Update if needed
+
       if (!labelData) return res.status(400).json({ success: false, error: 'Missing TSPL data.' });
 
       const file = path.join(__dirname, `tsc_${Date.now()}.txt`);
@@ -62,6 +64,8 @@ app.post('/print-label', async (req, res) => {
 
     if (printerType === 'hprt') {
       let finalData;
+       PRINTER_SHARE_NAME = 'HPRT_TP805L'; // <-- Update if needed
+
 
       if (labelData) {
         const imagePath = await generateLabelImageFromData(labelData);
