@@ -48,6 +48,7 @@ port.open((err) => {
 let buffer = [];
 
 parser.on('data', (line) => {
+
   if (MODE_AUTO) {
     // AUTO mode: each frame is one line
     const record = parseTicket([line]);
@@ -166,6 +167,22 @@ async function handleWebSocketPrintJob(printData) {
 // ---------- WEBSOCKET CONNECTION ----------
 let ws;
 
+let heartbeatInterval = null;
+
+function startHeartbeat() {
+  if (heartbeatInterval) clearInterval(heartbeatInterval);
+  heartbeatInterval = setInterval(() => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.ping();
+    }
+  }, 20000); // every 20 seconds
+}
+
+function stopHeartbeat() {
+  if (heartbeatInterval) clearInterval(heartbeatInterval);
+  heartbeatInterval = null;
+}
+
 function connectToRelay() {
   ws = new WebSocket(RELAY_SERVER_WS);
 
@@ -175,6 +192,7 @@ function connectToRelay() {
       type: 'register',
       agentId: AGENT_ID
     }));
+    startHeartbeat();
   });
 
   ws.on('message', async (message) => {
@@ -227,11 +245,13 @@ function connectToRelay() {
   });
 
   ws.on('close', () => {
+    stopHeartbeat();
     console.log('❌ WebSocket disconnected, reconnecting in 5s...');
     setTimeout(connectToRelay, 5000);
   });
 
   ws.on('error', (error) => {
+    stopHeartbeat
     console.error('❌ WebSocket error:', error);
   });
 }
