@@ -233,6 +233,33 @@ function connectToRelay() {
         }
       }
 
+
+      if (data.type === 'release_bins_request' && data.requestId && data.payload) {
+        
+      try {
+        const response = await axios.post(
+          'http://10.0.100.15:51554/api/Production/UpdateListMaterialRelease',
+          data.payload,
+          { headers: { 'Content-Type': 'application/json' } }
+        );
+
+        ws.send(JSON.stringify({
+          type: 'release_bins_response',
+          requestId: data.requestId,
+          success: true,
+          data: response.data
+        }));
+      } catch (err) {
+        ws.send(JSON.stringify({
+          type: 'release_bins_response',
+          requestId: data.requestId,
+          success: false,
+          error: err.message
+        }));
+      }
+    }
+
+
     } catch (error) {
       console.error('❌ WebSocket message error:', error);
       if (ws.readyState === WebSocket.OPEN) {
@@ -326,6 +353,32 @@ app.get('/get_weight', async (req, res) => {
     res.status(204).send(); // No content, same as Python service
   }
 });
+
+
+
+app.post('/relay/release-bins', (req, res) => {
+  const { agentId, payload } = req.body;
+
+  if (!agentId || !payload) return res.status(400).json({ error: 'agentId and payload required' });
+
+  const ws = agents.get(agentId);
+  if (!ws || ws.readyState !== WebSocket.OPEN) return res.status(404).json({ error: 'Agent not connected' });
+
+  const requestId = Date.now() + '-' + Math.random().toString(36).slice(2);
+
+  const timeout = setTimeout(() => {
+    pendingRequests.delete(requestId);
+    res.status(504).json({ error: 'Timeout waiting for agent response' });
+  }, 15000);
+
+  pendingRequests.set(requestId, { res, timeout });
+
+  ws.send(JSON.stringify({ type: 'release_bins_request', requestId, payload }));
+});
+
+
+
+
 
 // ---------- SERVER ----------
 const PORT = 9999;
