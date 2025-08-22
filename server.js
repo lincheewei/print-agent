@@ -18,7 +18,7 @@ const DEFAULT_HPRT_IP = '192.168.1.88';
 
 // ---------- WEBSOCKET CONFIG ----------
 const AGENT_ID = 'warehouse-printer-001';
-const RELAY_SERVER_WS = 'ws://ec2-43-216-11-51.ap-southeast-5.compute.amazonaws.com:8080';
+const RELAY_SERVER_WS = 'ws://http://ec2-43-216-246-220.ap-southeast-5.compute.amazonaws.com:8080';
 
 // ---------- SCALE CONFIG ----------
 const SCALE_PORT = process.env.SCALE_COM || 'COM7';
