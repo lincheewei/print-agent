@@ -1,0 +1,18 @@
+{
+  "agentId": "warehouse-terminal-001",
+  "relayUrl": "ws://ec2-43-216-246-220.ap-southeast-5.compute.amazonaws.com:8080",
+
+  "scale": {
+    "port": "COM7",
+    "baud": 1200,
+    "modeAuto": false
+  },
+
+  "printer": {
+    "tscShareName": "TSC_TE200",
+    "hprtShareName": "HPRT_TP805L",
+    "hprtIp": "192.168.1.88"
+  },
+
+  "localHttpPort": 9999
+}
