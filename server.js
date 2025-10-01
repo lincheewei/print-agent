@@ -6,13 +6,17 @@ const WebSocket = require('ws');
 const { SerialPort } = require('serialport');
 const { ReadlineParser } = require('@serialport/parser-readline');
 const { execSync } = require('child_process');
-
+const axios = require('axios'); // add to top if not already
 // Load configuration
 const config = require('./config.json');
 const { agentId, relayUrl, scale, printer, localHttpPort } = config;
+const CONFIG_PUSH_URL = `${relayUrl.replace('ws://', 'http://').replace('wss://', 'https://')}/api/agent-config`;
+const API_KEY = process.env.AGENT_API_KEY || null; // set securely in production
 
 const app = express();
 app.use(express.json());
+
+
 
 // ---------------- SCALE ----------------
 let latestRecord = null;
@@ -158,3 +162,48 @@ app.post('/print-label', async (req,res)=>{
 });
 
 app.listen(localHttpPort, ()=> console.log(`✅ Agent ready on http://localhost:${localHttpPort} as ${agentId}`));
+
+
+
+
+
+
+// ---------------- PUSH LOCAL CONFIG TO SERVER ----------------
+async function pushConfigToRelay(cfg) {
+  // Try WS first (preferred)
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'agent_config', action: 'push', agentId, config: cfg }));
+    console.log('[CONFIG] Pushed via WS');
+    return;
+  }
+
+  // Fallback to HTTP
+  if (API_KEY) {
+    try {
+      await axios.post(CONFIG_PUSH_URL, { agentId, config: cfg }, {
+        headers: { Authorization: `Bearer ${API_KEY}` },
+        timeout: 5000
+      });
+      console.log('[CONFIG] Pushed via HTTP');
+    } catch (err) {
+      console.error('[CONFIG] HTTP push failed:', err.message);
+    }
+  }
+}
+
+// Push on startup
+setTimeout(() => {
+  pushConfigToRelay(config);
+}, 2000); // wait a bit for WS to connect
+
+// Watch for changes and re-push
+fs.watchFile(path.resolve(__dirname, 'config.json'), { interval: 2000 }, () => {
+  console.log('[CONFIG] File changed, re-pushing');
+  try {
+    const raw = fs.readFileSync(path.resolve(__dirname, 'config.json'), 'utf8');
+    const cfg = JSON.parse(raw);
+    pushConfigToRelay(cfg);
+  } catch (err) {
+    console.error('[CONFIG] Failed to read/reload config:', err.message);
+  }
+});
