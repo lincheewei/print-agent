@@ -191,6 +191,9 @@ async function pushConfigToRelay(cfg) {
   }
 }
 
+
+
+
 // Push on startup
 setTimeout(() => {
   pushConfigToRelay(config);
