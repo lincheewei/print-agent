@@ -1,0 +1,69 @@
+
+
+SIZE 80 mm, 130 mm
+GAP 0 mm, 0 mm
+DIRECTION 0
+CLS
+SET PRINTMETHOD DIRECT
+OFFSET 0
+~W
+
+
+
+; OUTER BORDER
+BOX 15,15,600,945,3
+
+; ===== HEADER (top centered) =====
+TEXT 45,600,"3",270,1,1,"WORK ORDER LABEL"
+
+; ===== GRID LINES =====
+BAR 90,15,3,930
+BAR 190,15,3,930
+BAR 290,15,3,930
+BAR 390,15,3,930 
+
+
+; ===== VERTICAL GRID LINES =====
+
+BAR 90,650,300,3
+BAR 190,300,100,3
+
+
+; ================= CONTENT (shifted down) =================
+TEXT 105,920,"1",270,1,1,"W.O. NO.:"
+TEXT 135,900,"2",270,1,1,"CO/2025-33333"
+
+TEXT 105,630,"1",270,1,1,"PART NAME:"
+TEXT 135,610,"2",270,1,1,"E24-0100-WF"
+
+TEXT 205,920,"1",270,1,1,"DATE ISSUE:"
+TEXT 235,900,"2",270,1,1,"26/05/2025"
+
+TEXT 205,630,"1",270,1,1,"STOCK CODE:"
+TEXT 235,610,"2",270,1,1,""
+
+TEXT 205,270,"1",270,1,1,"PROCESS CODE/NO.:"
+TEXT 235,250,"2",270,1,1,""
+
+TEXT 305,920,"1",270,1,1,"EMP. NO.:"
+TEXT 335,900,"2",270,1,1,""
+
+TEXT 305,630,"1",270,1,1,"QTY.:"
+TEXT 335,610,"2",270,1,1,"10"
+
+; REMARKS text
+TEXT 405,920,"1",270,1,1,"REMARKS:"
+TEXT 435,900,"2",270,1,1,"MES Testing V3"
+
+
+; ================= BARCODE (bottom-right in Remarks column) =================
+BARCODE 550,250,"128",40,0,270,1,1,"*j333"
+TEXT 610,140,"1",270,1,1,"YI-PD-024R0"
+
+
+; -------------------- TOP CUT LINE ------------------------
+TEXT 180,975,"1",0,1,1,"---------  CUT HERE ---------"
+
+PRINT 1,1XA
+
+  
