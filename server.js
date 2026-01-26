@@ -6,6 +6,7 @@ const WebSocket = require('ws');
 const { SerialPort } = require('serialport');
 const { ReadlineParser } = require('@serialport/parser-readline');
 const cors = require('cors');
+
 // ========================= CONFIG =========================
 const cfgPath = path.join(__dirname, 'config.json');
 if (!fs.existsSync(cfgPath)) {
@@ -16,6 +17,7 @@ if (!fs.existsSync(cfgPath)) {
 const config = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
 const agentId = config.agentId;
 const scaleCfg = config.scale || {};
+const printerCfg = config.printer || {};
 const relayUrl = config.relayUrl || null;
 const PORT = config.localHttpPort || 9000;
 
@@ -49,10 +51,8 @@ function audit(entry) {
 }
 
 // ========================= SCALE STATE =========================
-const weighQueue = [];
-const MAX_QUEUE = 5;
-
-let scaleState = 'IDLE';       // IDLE | WAITING_UI | ERROR
+let currentEvent = null;     // 🔥 ONLY ONE EVENT
+let scaleState = 'IDLE';     // IDLE | WAITING_UI | ERROR
 let scaleReason = 'waiting for operator';
 let lastRawAt = null;
 
@@ -121,40 +121,43 @@ if (parser) {
     buffer.push(line);
     lastRawAt = Date.now();
 
-    // End of one operator-confirmed weighing
     if (line.trim().startsWith('PCS:')) {
       const rec = parseRecord(buffer);
       buffer = [];
       if (!rec) return;
 
-      const event = {
+      // 🔥 OVERWRITE previous event
+      currentEvent = {
         eventId: `evt_${Date.now()}`,
         ...rec,
         receivedAt: Date.now(),
         consumed: false
       };
 
-      weighQueue.push(event);
-      if (weighQueue.length > MAX_QUEUE) weighQueue.shift();
-
       scaleState = 'WAITING_UI';
       scaleReason = 'operator confirmed weight';
 
-      audit({ type: 'WEIGH_EVENT_CREATED', event });
-
-      console.log('[SCALE] event created', event.eventId);
+      audit({ type: 'WEIGH_EVENT_UPDATED', event: currentEvent });
+      console.log('[SCALE] latest event updated', currentEvent.eventId);
     }
   });
 }
 
-// ========================= AUTO-EXPIRE =========================
+// ========================= AUTO EXPIRE =========================
 setInterval(() => {
-  const now = Date.now();
-  for (const e of weighQueue) {
-    if (!e.consumed && now - e.receivedAt > 15000) {
-      e.consumed = true;
-      audit({ type: 'WEIGH_EVENT_EXPIRED', eventId: e.eventId });
-    }
+  if (
+    currentEvent &&
+    !currentEvent.consumed &&
+    Date.now() - currentEvent.receivedAt > 15000
+  ) {
+    audit({
+      type: 'WEIGH_EVENT_EXPIRED',
+      eventId: currentEvent.eventId
+    });
+
+    currentEvent = null;
+    scaleState = 'IDLE';
+    scaleReason = 'waiting for operator';
   }
 }, 2000);
 
@@ -163,11 +166,13 @@ app.get('/local-config', (req, res) => {
   res.json({
     terminalId: agentId,
     capabilities: {
-      scale: true
+      scale: true,
+      printer: !!printerCfg
     },
     endpoints: {
       scaleStatus: '/scale/status',
-      scaleConsume: '/scale/consume'
+      scaleConsume: '/scale/consume',
+      printerStatus: '/printer/status'
     },
     agent: {
       uptimeSec: Math.floor(process.uptime())
@@ -177,21 +182,20 @@ app.get('/local-config', (req, res) => {
 });
 
 app.get('/scale/status', (req, res) => {
-  const last = weighQueue.at(-1);
   res.json({
     terminalId: agentId,
     state: scaleState,
     reason: scaleReason,
-    queueDepth: weighQueue.filter(e => !e.consumed).length,
+    hasEvent: !!currentEvent,
     lastRawAgeMs: lastRawAt ? Date.now() - lastRawAt : null,
-    lastEventAgeMs: last ? Date.now() - last.receivedAt : null
+    lastEventAgeMs: currentEvent
+      ? Date.now() - currentEvent.receivedAt
+      : null
   });
 });
 
 app.post('/scale/consume', (req, res) => {
-  const evt = weighQueue.find(e => !e.consumed);
-
-  if (!evt) {
+  if (!currentEvent || currentEvent.consumed) {
     scaleState = 'IDLE';
     scaleReason = 'waiting for operator';
 
@@ -199,15 +203,18 @@ app.post('/scale/consume', (req, res) => {
 
     return res.status(409).json({
       status: 'NO_EVENT',
-      reason: 'operator has not pressed scale button'
+      reason: 'no scale reading available'
     });
   }
 
+  const evt = currentEvent;
   evt.consumed = true;
-  scaleState = 'IDLE';
-  scaleReason = 'waiting for next weigh';
 
   audit({ type: 'WEIGH_CONSUMED', event: evt });
+
+  currentEvent = null;
+  scaleState = 'IDLE';
+  scaleReason = 'waiting for next weigh';
 
   res.json({
     status: 'OK',
@@ -218,6 +225,28 @@ app.post('/scale/consume', (req, res) => {
       unit_weight_g: evt.unit_weight_g,
       timestamp: evt.receivedAt
     }
+  });
+});
+
+// ========================= PRINTER STATUS =========================
+app.get('/printer/status', (req, res) => {
+  if (!printerCfg || Object.keys(printerCfg).length === 0) {
+    return res.json({
+      terminalId: agentId,
+      connected: false,
+      reason: 'printer not configured'
+    });
+  }
+
+  // 🔧 Placeholder for future OS-level probing
+  res.json({
+    terminalId: agentId,
+    connected: true,
+    printer: {
+      name: printerCfg.name || printerCfg.tscShareName || printerCfg.hprtShareName || 'Unknown',
+      type: printerCfg.type || 'unknown'
+    },
+    status: 'READY'
   });
 });
 
@@ -249,7 +278,7 @@ setInterval(() => {
       agentId,
       payload: {
         state: scaleState,
-        queueDepth: weighQueue.filter(e => !e.consumed).length
+        hasEvent: !!currentEvent
       }
     }));
   }
