@@ -6,7 +6,7 @@ const WebSocket = require('ws');
 const { SerialPort } = require('serialport');
 const { ReadlineParser } = require('@serialport/parser-readline');
 const cors = require('cors');
-
+const fetch = global.fetch || require("node-fetch");
 // ========================= CONFIG =========================
 const cfgPath = path.join(__dirname, 'config.json');
 if (!fs.existsSync(cfgPath)) {
@@ -283,45 +283,34 @@ setInterval(() => {
     }));
   }
 }, 500);
-
-ws.on('message', async (raw) => {
+ws.on("message", async (raw) => {
   let msg;
-  try {
-    msg = JSON.parse(raw);
-  } catch {
-    return;
-  }
+  try { msg = JSON.parse(raw); } catch { return; }
 
-  if (msg.type !== 'agent_http') return;
+  if (msg.type !== "agent_http") return;
 
-  const { requestId, method, path: agentPath, body } = msg;
+  const { requestId, method, path, body } = msg;
+
+  console.log("📥 agent_http:", method, path);
 
   try {
-    const url = `http://localhost:${PORT}/${agentPath.replace(/^\/+/, '')}`;
-
-    const r = await fetch(url, {
+    const res = await fetch(`http://localhost:${PORT}/${path}`, {
       method,
-      headers: { 'Content-Type': 'application/json' },
-      body: method === 'GET' ? undefined : JSON.stringify(body)
+      headers: { "Content-Type": "application/json" },
+      body: method === "GET" ? undefined : JSON.stringify(body)
     });
 
-    const text = await r.text();
-    let parsed;
-    try {
-      parsed = text ? JSON.parse(text) : null;
-    } catch {
-      parsed = text;
-    }
+    const data = await res.json().catch(() => null);
 
     ws.send(JSON.stringify({
-      type: 'agent_http_response',
+      type: "http_response",
       requestId,
-      status: r.status,
-      body: parsed
+      status: res.status,
+      body: data
     }));
   } catch (err) {
     ws.send(JSON.stringify({
-      type: 'agent_http_response',
+      type: "http_response",
       requestId,
       status: 500,
       body: { error: err.message }
