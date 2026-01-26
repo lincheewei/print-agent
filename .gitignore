@@ -1,3 +1,4 @@
 # local machine-specific config
 config.jsons
 config.json
+audit.log.jsonl
