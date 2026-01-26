@@ -258,65 +258,67 @@ app.get('/audit/recent', (req, res) => {
 });
 
 // ========================= RELAY (STATUS ONLY) =========================
+// ========================= RELAY =========================
 let ws;
+
 function connectRelay() {
   if (!relayUrl) return;
+
   ws = new WebSocket(relayUrl);
 
-  ws.on('open', () => {
-    ws.send(JSON.stringify({ type: 'register', agentId }));
+  ws.on("open", () => {
+    console.log("🔗 Connected to relay");
+    ws.send(JSON.stringify({ type: "register", agentId }));
   });
 
-  ws.on('close', () => setTimeout(connectRelay, 5000));
-}
-connectRelay();
+  ws.on("message", async (raw) => {
+    let msg;
+    try { msg = JSON.parse(raw); } catch { return; }
 
-setInterval(() => {
-  if (ws?.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({
-      type: 'scale_status',
-      agentId,
-      payload: {
-        state: scaleState,
-        hasEvent: !!currentEvent
+    // 🔥 REQUIRED: handle HTTP proxy
+    if (msg.type === "agent_http") {
+      const { requestId, method, path, body } = msg;
+      console.log("📥 agent_http:", method, path);
+
+      try {
+        const url = `http://127.0.0.1:${PORT}/${String(path).replace(/^\/+/, "")}`;
+
+        const res = await fetch(url, {
+          method,
+          headers: { "Content-Type": "application/json" },
+          body: method === "GET" ? undefined : JSON.stringify(body)
+        });
+
+        const data = await res.json().catch(() => null);
+
+        ws.send(JSON.stringify({
+          type: "agent_http_response",   // ✅ FIXED
+          requestId,
+          status: res.status,
+          body: data
+        }));
+      } catch (err) {
+        ws.send(JSON.stringify({
+          type: "agent_http_response",   // ✅ FIXED
+          requestId,
+          status: 500,
+          body: { error: err.message }
+        }));
       }
-    }));
-  }
-}, 500);
-ws.on("message", async (raw) => {
-  let msg;
-  try { msg = JSON.parse(raw); } catch { return; }
+    }
+  });
 
-  if (msg.type !== "agent_http") return;
+  ws.on("close", () => {
+    console.log("❌ Relay disconnected, retrying...");
+    setTimeout(connectRelay, 3000);
+  });
 
-  const { requestId, method, path, body } = msg;
+  ws.on("error", () => {
+    try { ws.close(); } catch { }
+  });
+}
 
-  console.log("📥 agent_http:", method, path);
-
-  try {
-    const res = await fetch(`http://localhost:${PORT}/${path}`, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: method === "GET" ? undefined : JSON.stringify(body)
-    });
-
-    const data = await res.json().catch(() => null);
-
-    ws.send(JSON.stringify({
-      type: "http_response",
-      requestId,
-      status: res.status,
-      body: data
-    }));
-  } catch (err) {
-    ws.send(JSON.stringify({
-      type: "http_response",
-      requestId,
-      status: 500,
-      body: { error: err.message }
-    }));
-  }
-});
+connectRelay();
 
 // ========================= START =========================
 app.listen(PORT, () => {
