@@ -284,6 +284,51 @@ setInterval(() => {
   }
 }, 500);
 
+ws.on('message', async (raw) => {
+  let msg;
+  try {
+    msg = JSON.parse(raw);
+  } catch {
+    return;
+  }
+
+  if (msg.type !== 'agent_http') return;
+
+  const { requestId, method, path: agentPath, body } = msg;
+
+  try {
+    const url = `http://localhost:${PORT}/${agentPath.replace(/^\/+/, '')}`;
+
+    const r = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: method === 'GET' ? undefined : JSON.stringify(body)
+    });
+
+    const text = await r.text();
+    let parsed;
+    try {
+      parsed = text ? JSON.parse(text) : null;
+    } catch {
+      parsed = text;
+    }
+
+    ws.send(JSON.stringify({
+      type: 'agent_http_response',
+      requestId,
+      status: r.status,
+      body: parsed
+    }));
+  } catch (err) {
+    ws.send(JSON.stringify({
+      type: 'agent_http_response',
+      requestId,
+      status: 500,
+      body: { error: err.message }
+    }));
+  }
+});
+
 // ========================= START =========================
 app.listen(PORT, () => {
   console.log(`✅ Agent ${agentId} running on http://localhost:${PORT}`);
