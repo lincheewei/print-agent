@@ -2,7 +2,7 @@
 
 set HEALTH=http://localhost:9000/health
 set AGENT_ID=warehouse-terminal-003
-set APP_URL=http://ec2-43-216-246-220.ap-southeast-5.compute.amazonaws.com:5173/?agent=%AGENT_ID%
+set APP_URL=http://ec2-43-216-246-220.ap-southeast-5.compute.amazonaws.com:5173
 set CHROME="C:\Program Files\Google\Chrome\Application\chrome.exe"
 
 echo Waiting for agent health...
