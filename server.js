@@ -1,321 +1,422 @@
 // ========================= IMPORTS =========================
-const express = require('express');
-const fs = require('fs');
-const path = require('path');
-const WebSocket = require('ws');
-const { SerialPort } = require('serialport');
-const { ReadlineParser } = require('@serialport/parser-readline');
-const cors = require('cors');
-const fetch = global.fetch || require("node-fetch");
+const express = require("express");
+const fs = require("fs");
+const path = require("path");
+const net = require("net");
+const WebSocket = require("ws");
+const axios = require("axios");
+const { SerialPort } = require("serialport");
+const { ReadlineParser } = require("@serialport/parser-readline");
+const { exec } = require("child_process");
+
 // ========================= CONFIG =========================
-const cfgPath = path.join(__dirname, 'config.json');
+const ROOT = __dirname;
+const cfgPath = path.join(ROOT, "config.json");
+const QUEUE_FILE = path.join(ROOT, "print-queue.json");
+
 if (!fs.existsSync(cfgPath)) {
-  console.error('config.json missing');
+  console.error("❌ config.json missing");
   process.exit(1);
 }
 
-const config = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+const config = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
+
 const agentId = config.agentId;
+const relayUrl = config.relayUrl;
+const PORT = config.localHttpPort || 9000;
 const scaleCfg = config.scale || {};
 const printerCfg = config.printer || {};
-const relayUrl = config.relayUrl || null;
-const PORT = config.localHttpPort || 9000;
 
-const AUDIT_LOG = path.join(__dirname, 'audit.log.jsonl');
-
-// ========================= APP =========================
 const app = express();
-
-app.use(cors({
-  origin: [
-    'http://localhost:5173',
-    'http://127.0.0.1:5173'
-  ],
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type']
-}));
-
 app.use(express.json());
 
-// ========================= AUDIT =========================
-function audit(entry) {
-  fs.appendFile(
-    AUDIT_LOG,
-    JSON.stringify({
-      ts: new Date().toISOString(),
-      agentId,
-      ...entry
-    }) + '\n',
-    () => { }
-  );
+// ========================= UTIL =========================
+function safeWrite(file, data) {
+  fs.writeFileSync(file, JSON.stringify(data, null, 2));
 }
 
-// ========================= SCALE STATE =========================
-let currentEvent = null;     // 🔥 ONLY ONE EVENT
-let scaleState = 'IDLE';     // IDLE | WAITING_UI | ERROR
-let scaleReason = 'waiting for operator';
-let lastRawAt = null;
+function now() {
+  return new Date().toISOString();
+}
 
-// ========================= SERIAL =========================
-let buffer = [];
-let port, parser;
+// ========================= PRINT QUEUE =========================
+let printQueue = [];
 
-function openScale() {
-  try {
-    port = new SerialPort({
-      path: scaleCfg.port,
-      baudRate: scaleCfg.baud || 9600,
-      autoOpen: false
-    });
-
-    parser = port.pipe(new ReadlineParser({ delimiter: '\r\n' }));
-
-    port.open(err => {
-      if (err) {
-        scaleState = 'ERROR';
-        scaleReason = err.message;
-        console.error('[SCALE]', err.message);
-        setTimeout(openScale, 3000);
-      } else {
-        scaleState = 'IDLE';
-        scaleReason = 'connected';
-        console.log('[SCALE] connected on', scaleCfg.port);
-      }
-    });
-
-    port.on('close', () => {
-      scaleState = 'ERROR';
-      scaleReason = 'port closed';
-      setTimeout(openScale, 3000);
-    });
-
-    port.on('error', err => {
-      scaleState = 'ERROR';
-      scaleReason = err.message;
-    });
-
-  } catch (e) {
-    console.error('[SCALE] init failed', e.message);
+function loadQueue() {
+  if (fs.existsSync(QUEUE_FILE)) {
+    try {
+      printQueue = JSON.parse(fs.readFileSync(QUEUE_FILE, "utf8"));
+    } catch {
+      printQueue = [];
+    }
   }
 }
 
-openScale();
+function saveQueue() {
+  safeWrite(QUEUE_FILE, printQueue);
+}
 
-// ========================= PARSER =========================
+function enqueuePrint(job) {
+  printQueue.push(job);
+  saveQueue();
+}
+
+function updateJob(id, patch) {
+  const j = printQueue.find(j => j.jobId === id);
+  if (j) Object.assign(j, patch);
+  saveQueue();
+}
+
+loadQueue();
+
+// ========================= PRINTER PROBE =========================
+function probePrinterStatus() {
+  return new Promise((resolve) => {
+    if (!printerCfg?.name && !printerCfg?.tscShareName && !printerCfg?.hprtShareName) {
+      return resolve({
+        connected: false,
+        status: "NOT_CONFIGURED"
+      });
+    }
+
+    // Determine printer name (Windows sees SHARE NAME)
+    const printerName =
+      printerCfg.name ||
+      printerCfg.tscShareName ||
+      printerCfg.hprtShareName;
+
+    const psCmd = `
+$printer = Get-Printer -Name "${printerName}" -ErrorAction SilentlyContinue
+if (-not $printer) {
+  Write-Output "NOT_FOUND"
+  exit
+}
+
+$jobs = Get-PrintJob -PrinterName "${printerName}" -ErrorAction SilentlyContinue
+$status = @{
+  Name       = $printer.Name
+  Online    = -not $printer.Offline
+  Paused    = $printer.Paused
+  Error     = $printer.PrinterStatus -ne "Normal"
+  Queue     = ($jobs | Measure-Object).Count
+}
+$status | ConvertTo-Json -Compress
+`;
+
+    exec(
+      `powershell -NoProfile -Command "${psCmd.replace(/\n/g, "")}"`,
+      { timeout: 5000 },
+      (err, stdout) => {
+        if (err || !stdout) {
+          return resolve({
+            connected: false,
+            status: "ERROR",
+            reason: err?.message || "powershell_failed"
+          });
+        }
+
+        if (stdout.includes("NOT_FOUND")) {
+          return resolve({
+            connected: false,
+            status: "NOT_FOUND"
+          });
+        }
+
+        try {
+          const data = JSON.parse(stdout.trim());
+
+          let status = "READY";
+          if (!data.Online) status = "OFFLINE";
+          else if (data.Paused) status = "PAUSED";
+          else if (data.Error) status = "ERROR";
+
+          resolve({
+            connected: true,
+            online: data.Online,
+            paused: data.Paused,
+            hasError: data.Error,
+            queueDepth: data.Queue,
+            status
+          });
+        } catch (e) {
+          resolve({
+            connected: false,
+            status: "ERROR",
+            reason: "parse_failed"
+          });
+        }
+      }
+    );
+  });
+}
+
+// ========================= SCALE =========================
+let scaleState = "DISCONNECTED";
+let currentEvent = null;
+let buffer = [];
+let port, parser;
+
 function parseRecord(lines) {
-  const txt = lines.join('\n');
+  const txt = lines.join("\n");
   const net = /NET:\s*([-\d.]+)\s*kg/i.exec(txt)?.[1];
   const uw = /U\/W:\s*([-\d.]+)\s*g/i.exec(txt)?.[1];
   const pcs = /PCS:\s*(\d+)/i.exec(txt)?.[1];
   if (!(net && uw && pcs)) return null;
-
   return {
     net_kg: Number(net),
     unit_weight_g: Number(uw),
-    pcs: Number(pcs)
+    pcs: Number(pcs),
+    receivedAt: Date.now()
   };
 }
 
-if (parser) {
-  parser.on('data', line => {
-    buffer.push(line);
-    lastRawAt = Date.now();
+function openScale() {
+  if (!scaleCfg.port) return;
 
-    if (line.trim().startsWith('PCS:')) {
+  port = new SerialPort({
+    path: scaleCfg.port,
+    baudRate: scaleCfg.baud || 9600,
+    autoOpen: false
+  });
+
+  parser = port.pipe(new ReadlineParser({ delimiter: "\r\n" }));
+
+  port.open(err => {
+    if (err) {
+      scaleState = "ERROR";
+      setTimeout(openScale, 3000);
+    } else {
+      scaleState = "IDLE";
+    }
+  });
+
+  parser.on("data", line => {
+    buffer.push(line);
+    if (line.trim().startsWith("PCS:")) {
       const rec = parseRecord(buffer);
       buffer = [];
       if (!rec) return;
+      currentEvent = { ...rec, consumed: false };
+      scaleState = "WAITING_UI";
+    }
+  });
 
-      // 🔥 OVERWRITE previous event
-      currentEvent = {
-        eventId: `evt_${Date.now()}`,
-        ...rec,
-        receivedAt: Date.now(),
-        consumed: false
-      };
+  port.on("close", () => {
+    scaleState = "ERROR";
+    setTimeout(openScale, 3000);
+  });
+}
 
-      scaleState = 'WAITING_UI';
-      scaleReason = 'operator confirmed weight';
+openScale();
 
-      audit({ type: 'WEIGH_EVENT_UPDATED', event: currentEvent });
-      console.log('[SCALE] latest event updated', currentEvent.eventId);
+// ========================= PRINTING =========================
+async function sendToPrinter(job) {
+  return new Promise((resolve, reject) => {
+    try {
+      if (job.type === "hprt" && printerCfg.hprtIp) {
+        const client = new net.Socket();
+        client.connect(9100, printerCfg.hprtIp, () => {
+          client.write(Buffer.from(job.data, "binary"));
+          client.end();
+        });
+        client.on("close", () => resolve());
+        client.on("error", reject);
+      } else if (job.type === "tsc" && printerCfg.tscShareName) {
+        const tmp = path.join(ROOT, `print_${job.jobId}.txt`);
+        fs.writeFileSync(tmp, job.data, "ascii");
+        exec(`copy /b "${tmp}" \\\\localhost\\${printerCfg.tscShareName}`, err => {
+          fs.unlinkSync(tmp);
+          err ? reject(err) : resolve();
+        });
+      } else {
+        reject(new Error("Printer not configured"));
+      }
+    } catch (e) {
+      reject(e);
     }
   });
 }
 
-// ========================= AUTO EXPIRE =========================
-setInterval(() => {
-  if (
-    currentEvent &&
-    !currentEvent.consumed &&
-    Date.now() - currentEvent.receivedAt > 15000
-  ) {
-    audit({
-      type: 'WEIGH_EVENT_EXPIRED',
-      eventId: currentEvent.eventId
-    });
+// ========================= PRINT WORKER =========================
+setInterval(async () => {
+  const job = printQueue.find(j => j.status === "QUEUED");
+  if (!job) return;
 
-    currentEvent = null;
-    scaleState = 'IDLE';
-    scaleReason = 'waiting for operator';
+  updateJob(job.jobId, { status: "PRINTING" });
+
+  try {
+    await sendToPrinter(job);
+    updateJob(job.jobId, { status: "SUCCESS", finishedAt: now() });
+  } catch (e) {
+    job.retries++;
+    updateJob(job.jobId, {
+      status: job.retries >= 3 ? "FAILED" : "QUEUED",
+      lastError: e.message
+    });
   }
 }, 2000);
 
 // ========================= HTTP API =========================
-app.get('/local-config', (req, res) => {
+app.get("/printer/status", async (req, res) => {
+  const status = await probePrinterStatus();
   res.json({
     terminalId: agentId,
-    capabilities: {
-      scale: true,
-      printer: !!printerCfg
-    },
-    endpoints: {
-      scaleStatus: '/scale/status',
-      scaleConsume: '/scale/consume',
-      printerStatus: '/printer/status'
-    },
-    agent: {
-      uptimeSec: Math.floor(process.uptime())
-    },
+    printer: printerCfg?.name || printerCfg?.tscShareName || "Unknown",
+    ...status,
     timestamp: new Date().toISOString()
   });
 });
 
-app.get('/scale/status', (req, res) => {
+app.get("/health", (req, res) => {
   res.json({
-    terminalId: agentId,
-    state: scaleState,
-    reason: scaleReason,
-    hasEvent: !!currentEvent,
-    lastRawAgeMs: lastRawAt ? Date.now() - lastRawAt : null,
-    lastEventAgeMs: currentEvent
-      ? Date.now() - currentEvent.receivedAt
-      : null
-  });
-});
-
-app.post('/scale/consume', (req, res) => {
-  if (!currentEvent || currentEvent.consumed) {
-    scaleState = 'IDLE';
-    scaleReason = 'waiting for operator';
-
-    audit({ type: 'WEIGH_CONSUME_FAILED', reason: 'NO_EVENT' });
-
-    return res.status(409).json({
-      status: 'NO_EVENT',
-      reason: 'no scale reading available'
-    });
-  }
-
-  const evt = currentEvent;
-  evt.consumed = true;
-
-  audit({ type: 'WEIGH_CONSUMED', event: evt });
-
-  currentEvent = null;
-  scaleState = 'IDLE';
-  scaleReason = 'waiting for next weigh';
-
-  res.json({
-    status: 'OK',
-    event: {
-      eventId: evt.eventId,
-      net_kg: evt.net_kg,
-      pcs: evt.pcs,
-      unit_weight_g: evt.unit_weight_g,
-      timestamp: evt.receivedAt
-    }
-  });
-});
-
-// ========================= PRINTER STATUS =========================
-app.get('/printer/status', (req, res) => {
-  if (!printerCfg || Object.keys(printerCfg).length === 0) {
-    return res.json({
-      terminalId: agentId,
-      connected: false,
-      reason: 'printer not configured'
-    });
-  }
-
-  // 🔧 Placeholder for future OS-level probing
-  res.json({
-    terminalId: agentId,
-    connected: true,
-    printer: {
-      name: printerCfg.name || printerCfg.tscShareName || printerCfg.hprtShareName || 'Unknown',
-      type: printerCfg.type || 'unknown'
+    ok: true,
+    agentId,
+    uptime: process.uptime(),
+    scale: scaleState,
+    printer: !!printerCfg,
+    relay: {
+      connected: relayConnected,
+      url: relayUrl
     },
-    status: 'READY'
+    queue: {
+      total: printQueue.length,
+      pending: printQueue.filter(j => j.status === "QUEUED").length
+    },
+    timestamp: now()
   });
 });
 
-app.get('/audit/recent', (req, res) => {
-  if (!fs.existsSync(AUDIT_LOG)) return res.json([]);
-  const lines = fs.readFileSync(AUDIT_LOG, 'utf8')
-    .trim().split('\n').slice(-50);
-  res.json(lines.map(l => JSON.parse(l)));
+app.post("/print-label", (req, res) => {
+  const jobId = `job_${Date.now()}`;
+  enqueuePrint({
+    jobId,
+    status: "QUEUED",
+    retries: 0,
+    createdAt: now(),
+    ...req.body
+  });
+  res.json({ success: true, jobId });
 });
 
-// ========================= RELAY (STATUS ONLY) =========================
+app.get("/print/status/:jobId", (req, res) => {
+  const job = printQueue.find(j => j.jobId === req.params.jobId);
+  if (!job) return res.status(404).json({ error: "NOT_FOUND" });
+  res.json(job);
+});
+
+app.get("/scale/status", (req, res) => {
+  res.json({ state: scaleState, hasEvent: !!currentEvent });
+});
+
+app.post("/scale/consume", (req, res) => {
+  if (!currentEvent || currentEvent.consumed) {
+    return res.status(409).json({ error: "NO_EVENT" });
+  }
+  currentEvent.consumed = true;
+  const evt = currentEvent;
+  currentEvent = null;
+  scaleState = "IDLE";
+  res.json({ success: true, event: evt });
+});
+
 // ========================= RELAY =========================
-let ws;
+// ========================= RELAY =========================
+let ws = null;
+let relayConnected = false;
+let reconnectTimer = null;
+let shuttingDown = false;
 
 function connectRelay() {
-  if (!relayUrl) return;
+  if (!relayUrl) {
+    console.warn("[RELAY] relayUrl not configured");
+    return;
+  }
 
-  ws = new WebSocket(relayUrl);
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+    return; // already connected or connecting
+  }
 
-  ws.on("open", () => {
-    console.log("🔗 Connected to relay");
-    ws.send(JSON.stringify({ type: "register", agentId }));
-  });
+  console.log("[RELAY] Connecting to", relayUrl);
 
-  ws.on("message", async (raw) => {
-    let msg;
-    try { msg = JSON.parse(raw); } catch { return; }
+  try {
+    ws = new WebSocket(relayUrl);
 
-    // 🔥 REQUIRED: handle HTTP proxy
-    if (msg.type === "agent_http") {
-      const { requestId, method, path, body } = msg;
-      console.log("📥 agent_http:", method, path);
+    ws.on("open", () => {
+      relayConnected = true;
+      console.log("🔗 Relay connected");
 
+      ws.send(JSON.stringify({
+        type: "register",
+        agentId
+      }));
+    });
+
+    ws.on("message", async raw => {
+      let msg;
       try {
-        const url = `http://127.0.0.1:${PORT}/${String(path).replace(/^\/+/, "")}`;
-
-        const res = await fetch(url, {
-          method,
-          headers: { "Content-Type": "application/json" },
-          body: method === "GET" ? undefined : JSON.stringify(body)
-        });
-
-        const data = await res.json().catch(() => null);
-
-        ws.send(JSON.stringify({
-          type: "agent_http_response",   // ✅ FIXED
-          requestId,
-          status: res.status,
-          body: data
-        }));
-      } catch (err) {
-        ws.send(JSON.stringify({
-          type: "agent_http_response",   // ✅ FIXED
-          requestId,
-          status: 500,
-          body: { error: err.message }
-        }));
+        msg = JSON.parse(raw);
+      } catch {
+        return;
       }
-    }
-  });
 
-  ws.on("close", () => {
-    console.log("❌ Relay disconnected, retrying...");
-    setTimeout(connectRelay, 3000);
-  });
+      // ---- HTTP proxy ----
+      if (msg.type === "agent_http") {
+        const url = `http://127.0.0.1:${PORT}/${String(msg.path || "").replace(/^\/+/, "")}`;
 
-  ws.on("error", () => {
-    try { ws.close(); } catch { }
-  });
+        try {
+          const r = await axios({
+            method: msg.method || "GET",
+            url,
+            data: msg.body,
+            timeout: 8000,
+            validateStatus: () => true
+          });
+
+          ws?.send(JSON.stringify({
+            type: "agent_http_response",
+            requestId: msg.requestId,
+            status: r.status,
+            body: r.data
+          }));
+        } catch (e) {
+          ws?.send(JSON.stringify({
+            type: "agent_http_response",
+            requestId: msg.requestId,
+            status: 500,
+            body: { error: e.message }
+          }));
+        }
+      }
+    });
+
+    // 🔥 CRITICAL: NEVER THROW
+    ws.on("error", err => {
+      relayConnected = false;
+      console.error("❌ Relay socket error:", err.message);
+      // DO NOT throw — close event will trigger reconnect
+    });
+
+    ws.on("close", () => {
+      relayConnected = false;
+      console.warn("⚠️ Relay disconnected");
+
+      if (shuttingDown) return;
+      scheduleReconnect();
+    });
+
+  } catch (err) {
+    console.error("[RELAY] connect failed:", err.message);
+    scheduleReconnect();
+  }
+}
+
+function scheduleReconnect() {
+  if (reconnectTimer || shuttingDown) return;
+
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connectRelay();
+  }, 5000); // retry every 5s
 }
 
 connectRelay();
@@ -324,3 +425,15 @@ connectRelay();
 app.listen(PORT, () => {
   console.log(`✅ Agent ${agentId} running on http://localhost:${PORT}`);
 });
+
+
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
+
+function shutdown() {
+  shuttingDown = true;
+  console.log("🛑 Shutting down agent");
+
+  try { ws?.close(); } catch { }
+  process.exit(0);
+}
