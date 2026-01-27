@@ -1,6 +1,9 @@
 @echo off
-set URL=http://localhost:5173
+
 set HEALTH=http://localhost:9000/health
+set AGENT_ID=warehouse-terminal-003
+set APP_URL=http://ec2-43-216-246-220.ap-southeast-5.compute.amazonaws.com:5173/?agent=%AGENT_ID%
+set CHROME="C:\Program Files\Google\Chrome\Application\chrome.exe"
 
 echo Waiting for agent health...
 
@@ -12,4 +15,9 @@ if errorlevel 1 (
 )
 
 echo Agent healthy. Starting browser...
-start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" --kiosk %URL%
+start "" %CHROME% ^
+  --kiosk ^
+  --noerrdialogs ^
+  --disable-infobars ^
+  --start-fullscreen ^
+  %APP_URL%
