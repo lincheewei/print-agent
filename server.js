@@ -72,6 +72,7 @@ loadQueue();
 // ========================= PRINTER PROBE =========================
 function probePrinterStatus() {
   return new Promise((resolve) => {
+    // ---------- guard ----------
     if (
       !printerCfg?.name &&
       !printerCfg?.tscShareName &&
@@ -83,27 +84,46 @@ function probePrinterStatus() {
       });
     }
 
-    const printerName =
+    // Prefer explicit name → fallback to share names
+    const printerId =
       printerCfg.name ||
       printerCfg.tscShareName ||
       printerCfg.hprtShareName;
 
-    // ✅ SAFE PowerShell (semicolon-separated, no newlines required)
+    // ---------- PowerShell ----------
+    // IMPORTANT:
+    // - Try Name first
+    // - Then resolve by ShareName
+    // - Always probe using REAL printer Name
     const psCmd = `
 $ErrorActionPreference = 'SilentlyContinue';
-$printer = Get-Printer -Name '${printerName}';
-if (-not $printer) { Write-Output 'NOT_FOUND'; exit };
-$jobs = Get-PrintJob -PrinterName '${printerName}';
+
+$printer = Get-Printer -Name '${printerId}';
+
+if (-not $printer) {
+  $printer = Get-Printer | Where-Object { $_.ShareName -eq '${printerId}' };
+}
+
+if (-not $printer) {
+  Write-Output 'NOT_FOUND';
+  exit
+}
+
+$jobs = Get-PrintJob -PrinterName $printer.Name;
+
 $status = @{
-  Name    = $printer.Name;
-  Online  = -not $printer.Offline;
-  Paused  = $printer.Paused;
-  Error   = ($printer.PrinterStatus -ne 'Normal');
-  Queue   = ($jobs | Measure-Object).Count
+  Name        = $printer.Name;
+  ShareName  = $printer.ShareName;
+  Online     = -not $printer.Offline;
+  Paused     = $printer.Paused;
+  Error      = ($printer.PrinterStatus -ne 'Normal');
+  Queue      = ($jobs | Measure-Object).Count
 };
+
 $status | ConvertTo-Json -Compress
 `.trim();
 
+    // ---------- exec ----------
     exec(
       `powershell -NoProfile -Command "${psCmd.replace(/\r?\n/g, " ")}"`,
       { timeout: 5000 },
@@ -133,11 +153,13 @@ $status | ConvertTo-Json -Compress
 
           resolve({
             connected: true,
+            status,
+            name: data.Name,
+            shareName: data.ShareName,
             online: data.Online,
             paused: data.Paused,
             hasError: data.Error,
             queueDepth: data.Queue,
-            status,
           });
         } catch {
           resolve({
