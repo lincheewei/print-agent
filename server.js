@@ -318,6 +318,42 @@ app.post("/scale/consume", (req, res) => {
   scaleState = "IDLE";
   res.json({ success: true, event: evt });
 });
+// ========================= LOCAL CONFIG =========================
+app.get("/local-config", (req, res) => {
+  res.json({
+    agentId,
+    localHttpPort: PORT,
+
+    scale: {
+      enabled: !!scaleCfg.port,
+      port: scaleCfg.port || null,
+      baud: scaleCfg.baud || null,
+    },
+
+    printer: {
+      configured: !!(
+        printerCfg?.name ||
+        printerCfg?.tscShareName ||
+        printerCfg?.hprtShareName
+      ),
+      name:
+        printerCfg.name ||
+        printerCfg.tscShareName ||
+        printerCfg.hprtShareName ||
+        null,
+      type: printerCfg.hprtIp ? "hprt" : "tsc",
+    },
+
+    relay: {
+      url: relayUrl,
+      connected: relayConnected,
+    },
+
+    version: config.version || null,
+    uptimeSec: Math.floor(process.uptime()),
+    timestamp: new Date().toISOString(),
+  });
+});
 
 // ========================= RELAY =========================
 // ========================= RELAY =========================
