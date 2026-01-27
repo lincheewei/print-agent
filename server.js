@@ -72,53 +72,54 @@ loadQueue();
 // ========================= PRINTER PROBE =========================
 function probePrinterStatus() {
   return new Promise((resolve) => {
-    if (!printerCfg?.name && !printerCfg?.tscShareName && !printerCfg?.hprtShareName) {
+    if (
+      !printerCfg?.name &&
+      !printerCfg?.tscShareName &&
+      !printerCfg?.hprtShareName
+    ) {
       return resolve({
         connected: false,
-        status: "NOT_CONFIGURED"
+        status: "NOT_CONFIGURED",
       });
     }
 
-    // Determine printer name (Windows sees SHARE NAME)
     const printerName =
       printerCfg.name ||
       printerCfg.tscShareName ||
       printerCfg.hprtShareName;
 
+    // ✅ SAFE PowerShell (semicolon-separated, no newlines required)
     const psCmd = `
-$printer = Get-Printer -Name "${printerName}" -ErrorAction SilentlyContinue
-if (-not $printer) {
-  Write-Output "NOT_FOUND"
-  exit
-}
-
-$jobs = Get-PrintJob -PrinterName "${printerName}" -ErrorAction SilentlyContinue
+$ErrorActionPreference = 'SilentlyContinue';
+$printer = Get-Printer -Name '${printerName}';
+if (-not $printer) { Write-Output 'NOT_FOUND'; exit };
+$jobs = Get-PrintJob -PrinterName '${printerName}';
 $status = @{
-  Name       = $printer.Name
-  Online    = -not $printer.Offline
-  Paused    = $printer.Paused
-  Error     = $printer.PrinterStatus -ne "Normal"
-  Queue     = ($jobs | Measure-Object).Count
-}
+  Name    = $printer.Name;
+  Online  = -not $printer.Offline;
+  Paused  = $printer.Paused;
+  Error   = ($printer.PrinterStatus -ne 'Normal');
+  Queue   = ($jobs | Measure-Object).Count
+};
 $status | ConvertTo-Json -Compress
-`;
+`.trim();
 
     exec(
-      `powershell -NoProfile -Command "${psCmd.replace(/\n/g, "")}"`,
+      `powershell -NoProfile -Command "${psCmd.replace(/\r?\n/g, " ")}"`,
       { timeout: 5000 },
       (err, stdout) => {
         if (err || !stdout) {
           return resolve({
             connected: false,
             status: "ERROR",
-            reason: err?.message || "powershell_failed"
+            reason: err?.message || "powershell_failed",
           });
         }
 
         if (stdout.includes("NOT_FOUND")) {
           return resolve({
             connected: false,
-            status: "NOT_FOUND"
+            status: "NOT_FOUND",
           });
         }
 
@@ -136,13 +137,13 @@ $status | ConvertTo-Json -Compress
             paused: data.Paused,
             hasError: data.Error,
             queueDepth: data.Queue,
-            status
+            status,
           });
-        } catch (e) {
+        } catch {
           resolve({
             connected: false,
             status: "ERROR",
-            reason: "parse_failed"
+            reason: "json_parse_failed",
           });
         }
       }
@@ -267,21 +268,45 @@ app.get("/printer/status", async (req, res) => {
   });
 });
 
-app.get("/health", (req, res) => {
+app.get("/health", async (req, res) => {
+  const printer = await probePrinterStatus();
+
+  const scaleHealthy =
+    scaleState === "IDLE" ||
+    scaleState === "WAITING_UI";
+
+  const printerHealthy =
+    printer.connected === true &&
+    printer.status === "READY";
+
+  const relayHealthy = relayConnected === true;
+
+  const ok =
+    relayHealthy &&
+    printerHealthy &&
+    scaleHealthy;
+
   res.json({
-    ok: true,
+    ok, // 👈 REAL health
     agentId,
     uptime: process.uptime(),
-    scale: scaleState,
-    printer: !!printerCfg,
+
     relay: {
       connected: relayConnected,
       url: relayUrl
     },
+
+    printer,
+
+    scale: {
+      state: scaleState
+    },
+
     queue: {
       total: printQueue.length,
       pending: printQueue.filter(j => j.status === "QUEUED").length
     },
+
     timestamp: now()
   });
 });
