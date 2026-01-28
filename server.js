@@ -184,6 +184,21 @@ let scaleState = "DISCONNECTED";
 let currentEvent = null;
 let buffer = [];
 let port, parser;
+let eventTimer = null;
+const EVENT_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+
+function armEventTimeout() {
+  if (eventTimer) clearTimeout(eventTimer);
+
+  eventTimer = setTimeout(() => {
+    if (currentEvent && !currentEvent.consumed) {
+      logScaleError("⏱ Scale event timed out, discarding:", currentEvent);
+
+      currentEvent = null;
+      scaleState = "IDLE";
+    }
+  }, EVENT_TIMEOUT_MS);
+}
 
 function parseRecord(lines) {
   logScale("Parsing record:", lines);
@@ -285,6 +300,7 @@ function openScale() {
         currentEvent.pcs = rec.pcs;
         currentEvent.unit_weight_g = rec.unit_weight_g;
         currentEvent.receivedAt = Date.now();
+        armEventTimeout(); // 🔥 refresh timeout
 
         logScale("Updated existing scale event:", currentEvent);
       } else {
@@ -294,6 +310,8 @@ function openScale() {
           consumed: false
         };
         scaleState = "WAITING_UI";
+        armEventTimeout(); // 🔥 refresh timeout
+
 
         logScale("Created new scale event:", currentEvent);
       }
