@@ -389,14 +389,23 @@ app.get("/health", async (req, res) => {
 });
 
 app.post("/print-label", (req, res) => {
+  const { printerType, labelData, escpos } = req.body;
+
+  if (!printerType) {
+    return res.status(400).json({ success: false, error: "printerType required" });
+  }
+
   const jobId = `job_${Date.now()}`;
+
   enqueuePrint({
     jobId,
+    type: printerType,                 // ✅ MAP
+    data: labelData || escpos,          // ✅ MAP
     status: "QUEUED",
     retries: 0,
-    createdAt: now(),
-    ...req.body
+    createdAt: now()
   });
+
   res.json({ success: true, jobId });
 });
 
