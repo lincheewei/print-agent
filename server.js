@@ -266,9 +266,10 @@ function openScale() {
 
     buffer.push(line);
 
-    // Adjust trigger if needed
+    // End-of-record trigger
     if (line.trim().startsWith("PCS:")) {
       logScale("End-of-record detected");
+
       const rec = parseRecord(buffer);
       buffer = [];
 
@@ -277,10 +278,25 @@ function openScale() {
         return;
       }
 
-      currentEvent = { ...rec, consumed: false };
-      scaleState = "WAITING_UI";
+      // ✅ UPDATE-IN-PLACE logic
+      if (currentEvent && !currentEvent.consumed) {
+        // 🔁 Update existing event
+        currentEvent.net_kg = rec.net_kg;
+        currentEvent.pcs = rec.pcs;
+        currentEvent.unit_weight_g = rec.unit_weight_g;
+        currentEvent.receivedAt = Date.now();
 
-      logScale("Parsed record:", currentEvent);
+        logScale("Updated existing scale event:", currentEvent);
+      } else {
+        // 🆕 Create new event
+        currentEvent = {
+          ...rec,
+          consumed: false
+        };
+        scaleState = "WAITING_UI";
+
+        logScale("Created new scale event:", currentEvent);
+      }
     }
   });
 }
