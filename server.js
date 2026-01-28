@@ -288,6 +288,53 @@ function openScale() {
 openScale();
 
 // ========================= PRINTING =========================
+
+async function handlePrintJob(printData) {
+  const { printerType, tspl, escpos, printerIP, labelData } = printData || {};
+  try {
+    if (!printerType) throw new Error('printerType required');
+    if (printerType === 'tsc') {
+      const file = path.join(__dirname, `tsc_${Date.now()}.txt`);
+      await fs.promises.writeFile(file, labelData || tspl || '', 'ascii');
+      if (!printer.tscShareName) throw new Error('printer.tscShareName not configured');
+      const cmd = `copy /b "${file}" \\\\localhost\\${printer.tscShareName}`;
+      execSync(cmd, { stdio: 'inherit', shell: true });
+      fs.unlink(file, () => { });
+      return { success: true, message: 'TSC label printed' };
+    }
+
+    if (printerType === 'hprt') {
+      const finalData = escpos ? Buffer.from(escpos, 'binary') : null;
+      if (!finalData) throw new Error('No ESC/POS data provided');
+
+      const ip = printerIP || printer.hprtIp;
+      if (ip) {
+        const client = new net.Socket();
+        return new Promise((resolve, reject) => {
+          client.connect(9100, ip, () => {
+            client.write(finalData);
+            client.end();
+          });
+          client.on('close', () => resolve({ success: true, message: `HPRT sent via TCP:${ip}` }));
+          client.on('error', err => reject(err));
+        });
+      } else {
+        if (!printer.hprtShareName) throw new Error('printer.hprtShareName not configured');
+        const file = path.join(__dirname, `hprt_${Date.now()}.bin`);
+        await fs.promises.writeFile(file, finalData);
+        const cmd = `copy /b "${file}" \\\\localhost\\${printer.hprtShareName}`;
+        execSync(cmd, { stdio: 'inherit', shell: true });
+        fs.unlink(file, () => { });
+        return { success: true, message: 'HPRT label printed' };
+      }
+    }
+
+    throw new Error('Unknown printer type');
+  } catch (err) {
+    console.error('[PRINT] error', err.message);
+    return { success: false, error: err.message };
+  }
+}
 async function sendToPrinter(job) {
   return new Promise((resolve, reject) => {
     try {
@@ -323,9 +370,26 @@ setInterval(async () => {
   updateJob(job.jobId, { status: "PRINTING" });
 
   try {
-    await sendToPrinter(job);
-    updateJob(job.jobId, { status: "SUCCESS", finishedAt: now() });
+    console.log("🖨️ PRINT JOB START", job.jobId, job.printerType);
+
+    const result = await handlePrintJob({
+      printerType: job.printerType,
+      labelData: job.labelData,
+      escpos: job.escpos
+    });
+
+    if (!result.success) throw new Error(result.error);
+
+    updateJob(job.jobId, {
+      status: "SUCCESS",
+      finishedAt: now()
+    });
+
+    console.log("✅ PRINT SUCCESS", job.jobId);
+
   } catch (e) {
+    console.error("❌ PRINT FAILED", job.jobId, e.message);
+
     job.retries++;
     updateJob(job.jobId, {
       status: job.retries >= 3 ? "FAILED" : "QUEUED",
@@ -392,18 +456,24 @@ app.post("/print-label", (req, res) => {
   const { printerType, labelData, escpos } = req.body;
 
   if (!printerType) {
-    return res.status(400).json({ success: false, error: "printerType required" });
+    return res.status(400).json({
+      success: false,
+      error: "printerType required"
+    });
   }
 
   const jobId = `job_${Date.now()}`;
 
   enqueuePrint({
     jobId,
-    type: printerType,                 // ✅ MAP
-    data: labelData || escpos,          // ✅ MAP
     status: "QUEUED",
     retries: 0,
-    createdAt: now()
+    createdAt: now(),
+
+    // ✅ NORMALIZED FIELDS
+    printerType,           // "tsc" | "hprt"
+    labelData,             // TSPL
+    escpos                 // optional
   });
 
   res.json({ success: true, jobId });
