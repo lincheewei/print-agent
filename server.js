@@ -34,7 +34,13 @@ app.use(express.json());
 function safeWrite(file, data) {
   fs.writeFileSync(file, JSON.stringify(data, null, 2));
 }
+function logScale(...args) {
+  console.log("[SCALE]", ...args);
+}
 
+function logScaleError(...args) {
+  console.error("[SCALE]", ...args);
+}
 function now() {
   return new Date().toISOString();
 }
@@ -180,26 +186,41 @@ let buffer = [];
 let port, parser;
 
 function parseRecord(lines) {
+  logScale("Parsing record:", lines);
+
   const txt = lines.join("\n");
+
   const net = /NET:\s*([-\d.]+)\s*kg/i.exec(txt)?.[1];
   const uw = /U\/W:\s*([-\d.]+)\s*g/i.exec(txt)?.[1];
   const pcs = /PCS:\s*(\d+)/i.exec(txt)?.[1];
-  if (!(net && uw && pcs)) return null;
+
+  if (!(net && uw && pcs)) {
+    logScaleError("Parse regex failed", { net, uw, pcs });
+    return null;
+  }
+
   return {
     net_kg: Number(net),
     unit_weight_g: Number(uw),
     pcs: Number(pcs),
-    receivedAt: Date.now()
+    receivedAt: Date.now(),
   };
 }
 
 function openScale() {
-  if (!scaleCfg.port) return;
+  if (!scaleCfg.port) {
+    logScale("No scale.port configured");
+    return;
+  }
+
+  logScale(
+    `Initializing scale on ${scaleCfg.port} @ ${scaleCfg.baud || 9600} baud`
+  );
 
   port = new SerialPort({
     path: scaleCfg.port,
     baudRate: scaleCfg.baud || 9600,
-    autoOpen: false
+    autoOpen: false,
   });
 
   parser = port.pipe(new ReadlineParser({ delimiter: "\r\n" }));
@@ -207,26 +228,52 @@ function openScale() {
   port.open(err => {
     if (err) {
       scaleState = "ERROR";
+      logScaleError("Failed to open port:", err.message);
       setTimeout(openScale, 3000);
     } else {
       scaleState = "IDLE";
+      logScale("Serial port opened successfully");
     }
   });
 
-  parser.on("data", line => {
-    buffer.push(line);
-    if (line.trim().startsWith("PCS:")) {
-      const rec = parseRecord(buffer);
-      buffer = [];
-      if (!rec) return;
-      currentEvent = { ...rec, consumed: false };
-      scaleState = "WAITING_UI";
-    }
+  port.on("error", err => {
+    scaleState = "ERROR";
+    logScaleError("Serial port error:", err.message);
   });
 
   port.on("close", () => {
     scaleState = "ERROR";
+    logScaleError("Serial port closed unexpectedly, retrying...");
     setTimeout(openScale, 3000);
+  });
+
+  // 🔥 RAW DATA LOGGING
+  port.on("data", buf => {
+    logScale("RAW BUFFER:", buf.toString("hex"), "ASCII:", buf.toString());
+  });
+
+  // 🔥 PARSED LINE LOGGING
+  parser.on("data", line => {
+    logScale("LINE:", JSON.stringify(line));
+
+    buffer.push(line);
+
+    // Adjust trigger if needed
+    if (line.trim().startsWith("PCS:")) {
+      logScale("End-of-record detected");
+      const rec = parseRecord(buffer);
+      buffer = [];
+
+      if (!rec) {
+        logScaleError("Parse failed, raw record:", buffer);
+        return;
+      }
+
+      currentEvent = { ...rec, consumed: false };
+      scaleState = "WAITING_UI";
+
+      logScale("Parsed record:", currentEvent);
+    }
   });
 }
 
@@ -352,17 +399,30 @@ app.get("/print/status/:jobId", (req, res) => {
 });
 
 app.get("/scale/status", (req, res) => {
-  res.json({ state: scaleState, hasEvent: !!currentEvent });
+  logScale("Status requested:", {
+    state: scaleState,
+    hasEvent: !!currentEvent,
+  });
+
+  res.json({
+    state: scaleState,
+    hasEvent: !!currentEvent,
+  });
 });
 
 app.post("/scale/consume", (req, res) => {
   if (!currentEvent || currentEvent.consumed) {
+    logScale("Consume rejected: NO_EVENT");
     return res.status(409).json({ error: "NO_EVENT" });
   }
+
+  logScale("Consumed event:", currentEvent);
+
   currentEvent.consumed = true;
   const evt = currentEvent;
   currentEvent = null;
   scaleState = "IDLE";
+
   res.json({ success: true, event: evt });
 });
 // ========================= LOCAL CONFIG =========================
