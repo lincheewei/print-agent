@@ -291,23 +291,37 @@ openScale();
 
 async function handlePrintJob(printData) {
   const { printerType, tspl, escpos, printerIP, labelData } = printData || {};
+
   try {
-    if (!printerType) throw new Error('printerType required');
-    if (printerType === 'tsc') {
-      const file = path.join(__dirname, `tsc_${Date.now()}.txt`);
-      await fs.promises.writeFile(file, labelData || tspl || '', 'ascii');
-      if (!printer.tscShareName) throw new Error('printer.tscShareName not configured');
-      const cmd = `copy /b "${file}" \\\\localhost\\${printer.tscShareName}`;
-      execSync(cmd, { stdio: 'inherit', shell: true });
-      fs.unlink(file, () => { });
-      return { success: true, message: 'TSC label printed' };
+    if (!printerType) throw new Error("printerType required");
+
+    // ================= TSC =================
+    if (printerType === "tsc") {
+      if (!printerCfg.tscShareName) {
+        throw new Error("printerCfg.tscShareName not configured");
+      }
+
+      const file = path.join(ROOT, `tsc_${Date.now()}.txt`);
+      await fs.promises.writeFile(file, labelData || tspl || "", "ascii");
+
+      const cmd = `copy /b "${file}" \\\\localhost\\${printerCfg.tscShareName}`;
+      console.log("🖨️ [PRINT] TSC CMD:", cmd);
+
+      exec(cmd, err => {
+        fs.unlink(file, () => { });
+        if (err) throw err;
+      });
+
+      return { success: true, message: "TSC label printed" };
     }
 
-    if (printerType === 'hprt') {
-      const finalData = escpos ? Buffer.from(escpos, 'binary') : null;
-      if (!finalData) throw new Error('No ESC/POS data provided');
+    // ================= HPRT =================
+    if (printerType === "hprt") {
+      const finalData = escpos ? Buffer.from(escpos, "binary") : null;
+      if (!finalData) throw new Error("No ESC/POS data provided");
 
-      const ip = printerIP || printer.hprtIp;
+      const ip = printerIP || printerCfg.hprtIp;
+
       if (ip) {
         const client = new net.Socket();
         return new Promise((resolve, reject) => {
@@ -315,23 +329,32 @@ async function handlePrintJob(printData) {
             client.write(finalData);
             client.end();
           });
-          client.on('close', () => resolve({ success: true, message: `HPRT sent via TCP:${ip}` }));
-          client.on('error', err => reject(err));
+          client.on("close", () =>
+            resolve({ success: true, message: `HPRT sent via TCP:${ip}` })
+          );
+          client.on("error", reject);
         });
-      } else {
-        if (!printer.hprtShareName) throw new Error('printer.hprtShareName not configured');
-        const file = path.join(__dirname, `hprt_${Date.now()}.bin`);
-        await fs.promises.writeFile(file, finalData);
-        const cmd = `copy /b "${file}" \\\\localhost\\${printer.hprtShareName}`;
-        execSync(cmd, { stdio: 'inherit', shell: true });
-        fs.unlink(file, () => { });
-        return { success: true, message: 'HPRT label printed' };
       }
+
+      if (!printerCfg.hprtShareName) {
+        throw new Error("printerCfg.hprtShareName not configured");
+      }
+
+      const file = path.join(ROOT, `hprt_${Date.now()}.bin`);
+      await fs.promises.writeFile(file, finalData);
+
+      const cmd = `copy /b "${file}" \\\\localhost\\${printerCfg.hprtShareName}`;
+      exec(cmd, err => {
+        fs.unlink(file, () => { });
+        if (err) throw err;
+      });
+
+      return { success: true, message: "HPRT label printed" };
     }
 
-    throw new Error('Unknown printer type');
+    throw new Error("Unknown printer type");
   } catch (err) {
-    console.error('[PRINT] error', err.message);
+    console.error("[PRINT] error", err.message);
     return { success: false, error: err.message };
   }
 }
