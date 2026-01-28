@@ -191,20 +191,28 @@ function parseRecord(lines) {
   const txt = lines.join("\n");
 
   const net = /NET:\s*([-\d.]+)\s*kg/i.exec(txt)?.[1];
-  const uw = /U\/W:\s*([-\d.]+)\s*g/i.exec(txt)?.[1];
   const pcs = /PCS:\s*(\d+)/i.exec(txt)?.[1];
 
-  if (!(net && uw && pcs)) {
-    logScaleError("Parse regex failed", { net, uw, pcs });
+  // Optional U/W (some scales do NOT send this)
+  const uw =
+    /U\/W:\s*([-\d.]+)\s*g/i.exec(txt)?.[1] ??
+    /UNIT\s*W(T|EIGHT)?:\s*([-\d.]+)/i.exec(txt)?.[2] ??
+    null;
+
+  if (!(net && pcs)) {
+    logScaleError("Parse failed (missing NET or PCS)", { net, pcs });
     return null;
   }
 
-  return {
+  const record = {
     net_kg: Number(net),
-    unit_weight_g: Number(uw),
     pcs: Number(pcs),
+    unit_weight_g: uw !== null ? Number(uw) : null,
     receivedAt: Date.now(),
   };
+
+  logScale("Parsed OK:", record);
+  return record;
 }
 
 function openScale() {
