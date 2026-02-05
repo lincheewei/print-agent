@@ -674,6 +674,50 @@ function connectRelay() {
           }));
         }
       }
+      // ================= RELEASE BINS =================
+      if (msg.type === "release_bins_request" && msg.requestId) {
+        const { requestId, payload } = msg;
+
+        console.log("📦 [AGENT] release_bins_request", requestId);
+
+        try {
+          const resp = await axios.post(
+            "http://10.0.100.15:51554/api/Production/UpdateListMaterialRelease",
+            payload,
+            {
+              headers: { "Content-Type": "application/json" },
+              timeout: 8000
+            }
+          );
+
+          ws.send(JSON.stringify({
+            type: "agent_http_response",   // ✅ REQUIRED
+            requestId,
+            status: 200,
+            body: {
+              success: true,
+              data: resp.data,
+              agentId
+            }
+          }));
+
+          console.log("✅ [AGENT] release bins OK", requestId);
+
+        } catch (err) {
+          ws.send(JSON.stringify({
+            type: "agent_http_response",   // ✅ REQUIRED
+            requestId,
+            status: 500,
+            body: {
+              success: false,
+              error: err.message,
+              agentId
+            }
+          }));
+
+          console.error("❌ [AGENT] release bins FAILED", requestId, err.message);
+        }
+      }
     });
 
     // 🔥 CRITICAL: NEVER THROW
