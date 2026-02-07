@@ -1,6 +1,6 @@
 {
     "agentId": "warehouse-terminal-003",
-    "relayUrl": "ws://ec2-43-216-246-220.ap-southeast-5.compute.amazonaws.com:3001",
+    "relayUrl": "ws://ec2-43-217-35-209.ap-southeast-5.compute.amazonaws.com:3001",
     "scale": {
         "port": "COM7",
         "baud": 1200,
