@@ -331,22 +331,24 @@ async function handlePrintJob(printData) {
 
     // ================= TSC =================
     if (printerType === "tsc") {
-      if (!printerCfg.tscShareName) {
-        throw new Error("printerCfg.tscShareName not configured");
-      }
+      assertPrinterConfigured("tsc");
 
       const file = path.join(ROOT, `tsc_${Date.now()}.txt`);
       await fs.promises.writeFile(file, labelData || tspl || "", "ascii");
 
-      const cmd = `copy /b "${file}" \\\\localhost\\${printerCfg.tscShareName}`;
+      const cmd = `copy /b "${file}" "\\\\localhost\\${printerCfg.tscShareName}"`;
       console.log("🖨️ [PRINT] TSC CMD:", cmd);
 
-      exec(cmd, err => {
+      try {
+        await execAsync(cmd, { timeout: 5000 });
+        return { success: true, message: "TSC label printed" };
+      } catch (err) {
+        throw new Error(
+          `TSC print failed: ${err.message || "printer not reachable"}`
+        );
+      } finally {
         fs.unlink(file, () => { });
-        if (err) throw err;
-      });
-
-      return { success: true, message: "TSC label printed" };
+      }
     }
 
     // ================= HPRT =================
@@ -371,19 +373,25 @@ async function handlePrintJob(printData) {
       }
 
       if (!printerCfg.hprtShareName) {
-        throw new Error("printerCfg.hprtShareName not configured");
+        throw new Error("HPRT printer share name not configured");
       }
 
       const file = path.join(ROOT, `hprt_${Date.now()}.bin`);
       await fs.promises.writeFile(file, finalData);
 
-      const cmd = `copy /b "${file}" \\\\localhost\\${printerCfg.hprtShareName}`;
-      exec(cmd, err => {
-        fs.unlink(file, () => { });
-        if (err) throw err;
-      });
+      const cmd = `copy /b "${file}" "\\\\localhost\\${printerCfg.hprtShareName}"`;
+      console.log("🖨️ [PRINT] HPRT CMD:", cmd);
 
-      return { success: true, message: "HPRT label printed" };
+      try {
+        await execAsync(cmd, { timeout: 5000 });
+        return { success: true, message: "HPRT label printed (shared)" };
+      } catch (err) {
+        throw new Error(
+          `HPRT shared print failed: ${err.message || "printer not reachable"}`
+        );
+      } finally {
+        fs.unlink(file, () => { });
+      }
     }
 
     throw new Error("Unknown printer type");
