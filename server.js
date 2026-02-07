@@ -322,6 +322,26 @@ function openScale() {
 openScale();
 
 // ========================= PRINTING =========================
+function execAsync(cmd, opts = {}) {
+  return new Promise((resolve, reject) => {
+    exec(cmd, opts, (err, stdout, stderr) => {
+      if (err) {
+        err.stderr = stderr;
+        return reject(err);
+      }
+      resolve({ stdout, stderr });
+    });
+  });
+}
+function assertPrinterConfigured(type) {
+  if (type === "tsc" && !printerCfg.tscShareName) {
+    throw new Error("TSC printer share name not configured");
+  }
+
+  if (type === "hprt" && !printerCfg.hprtIp && !printerCfg.hprtShareName) {
+    throw new Error("HPRT printer IP or share name not configured");
+  }
+}
 
 async function handlePrintJob(printData) {
   const { printerType, tspl, escpos, printerIP, labelData } = printData || {};
