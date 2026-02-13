@@ -655,6 +655,22 @@ function connectRelay() {
 
   try {
     ws = new WebSocket(relayUrl);
+    let pingTimeout = null;
+
+    ws.on("ping", () => {
+      // relay ping received
+      clearTimeout(pingTimeout);
+
+      // if no ping in 70s, force close
+      pingTimeout = setTimeout(() => {
+        console.warn("⚠️ No ping from relay — closing socket");
+        ws.terminate();
+      }, 70000);
+    });
+
+    ws.on("pong", () => {
+      clearTimeout(pingTimeout);
+    });
 
     ws.on("open", () => {
       relayConnected = true;
@@ -718,12 +734,16 @@ function connectRelay() {
             }
           );
 
+          const isSuccess =
+            resp.data?.success === true ||
+            resp.data?.message === "List Update Success.";
+
           ws.send(JSON.stringify({
-            type: "agent_http_response",   // ✅ REQUIRED
+            type: "agent_http_response",
             requestId,
-            status: 200,
+            status: isSuccess ? 200 : 500,
             body: {
-              success: true,
+              success: isSuccess,
               data: resp.data,
               agentId
             }
