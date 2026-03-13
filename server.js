@@ -738,18 +738,26 @@ function connectRelay() {
           console.log("✅ [AGENT] release bins OK", requestId);
 
         } catch (err) {
+
+          console.error("❌ [AGENT] release bins FAILED", requestId);
+
+          if (err.response) {
+            console.error("Status:", err.response.status);
+            console.error("API Response:", err.response.data);
+          } else {
+            console.error("Error:", err.message);
+          }
+
           ws.send(JSON.stringify({
-            type: "agent_http_response",   // ✅ REQUIRED
+            type: "agent_http_response",
             requestId,
             status: 500,
             body: {
               success: false,
-              error: err.message,
+              error: err.response?.data || err.message,
               agentId
             }
           }));
-
-          console.error("❌ [AGENT] release bins FAILED", requestId, err.message);
         }
       }
     });
