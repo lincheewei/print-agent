@@ -706,17 +706,26 @@ function connectRelay() {
       }
       // ================= RELEASE BINS =================
       if (msg.type === "release_bins_request" && msg.requestId) {
-        const { requestId, payload } = msg;
+        const { requestId } = msg;
+
+        // ensure correct MES format
+        const payload = Array.isArray(msg.payload)
+          ? msg.payload
+          : msg.payload?.payload || [];
 
         console.log("📦 [AGENT] release_bins_request", requestId);
 
         try {
+          console.log("MES FINAL PAYLOAD:");
+          console.log(JSON.stringify(payload, null, 2));
           const resp = await axios.post(
             "http://10.0.100.15:51554/api/Production/UpdateListMaterialRelease",
             payload,
             {
               headers: { "Content-Type": "application/json" },
-              timeout: 8000
+              timeout: 8000,
+              validateStatus: () => true
+
             }
           );
 
