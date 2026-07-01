@@ -1,0 +1,45 @@
+name: Deploy print agents
+
+# On every push to main (and via the manual "Run workflow" button), each
+# terminal's self-hosted runner pulls the latest code and hard-restarts its
+# print agent. One job per terminal, run locally on that terminal's runner.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  restart:
+    strategy:
+      fail-fast: false        # an offline terminal must not fail the others
+      matrix:
+        terminal:
+          - warehouse-terminal-001
+          - warehouse-terminal-002
+          - warehouse-terminal-003
+          - warehouse-terminal-004
+    # Routes each job to the runner carrying this exact label (set at install).
+    runs-on: [self-hosted, windows, "${{ matrix.terminal }}"]
+    steps:
+      - name: Pull latest and restart the agent
+        shell: cmd
+        run: |
+          cd /d C:\print-agent
+
+          rem Mirror origin/main exactly. reset --hard is force-push-safe and
+          rem leaves untracked files (config.json, agent.log) alone, so each
+          rem terminal's local config is preserved.
+          git fetch origin main
+          git reset --hard origin/main
+
+          rem Kill the stale agent so the new code actually loads (Node has no
+          rem hot-reload). The runner is a .NET process, so it survives this.
+          taskkill /F /IM node.exe 2>nul & rem ignore "no process" error
+
+          timeout /t 2 >nul
+
+          rem Relaunch via the scheduled task (returns immediately; do NOT run
+          rem start-print-agent.bat directly, it blocks on node and hangs the job).
+          schtasks /Run /TN "Start Print Agent"
+
+          echo Updated + restarted %COMPUTERNAME% at %GITHUB_SHA%
