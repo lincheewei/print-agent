@@ -719,7 +719,7 @@ function connectRelay() {
           console.log("MES FINAL PAYLOAD:");
           console.log(JSON.stringify(payload, null, 2));
           const resp = await axios.post(
-            "http://10.0.100.15:51554/api/Production/UpdateListMaterialRelease",
+            "http://10.0.100.14:51554/api/Production/UpdateListMaterialRelease",
             payload,
             {
               headers: { "Content-Type": "application/json" },

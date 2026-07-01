@@ -1,7 +1,7 @@
 import axios from "axios";
 
 const API_URL =
-  "http://10.0.100.15:51554/api/Production/UpdateListMaterialRelease";
+  "http://10.0.100.14:51554/api/Production/UpdateListMaterialRelease";
 
 // FULL component list
 const components = [
