@@ -723,7 +723,7 @@ function connectRelay() {
             payload,
             {
               headers: { "Content-Type": "application/json" },
-              timeout: 8000,
+              timeout: 20000,
               validateStatus: () => true
 
             }
