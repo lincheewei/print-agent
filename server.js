@@ -334,8 +334,8 @@ function execAsync(cmd, opts = {}) {
   });
 }
 function assertPrinterConfigured(type) {
-  if (type === "tsc" && !printerCfg.tscShareName) {
-    throw new Error("TSC printer share name not configured");
+  if (type === "tsc" && !printerCfg.tscIp && !printerCfg.tscShareName) {
+    throw new Error("TSC printer IP or share name not configured");
   }
 
   if (type === "hprt" && !printerCfg.hprtIp && !printerCfg.hprtShareName) {
@@ -353,8 +353,37 @@ async function handlePrintJob(printData) {
     if (printerType === "tsc") {
       assertPrinterConfigured("tsc");
 
+      const data = labelData || tspl || "";
+
+      // Prefer direct network printing when a TSC IP is configured/supplied —
+      // raw TSPL to port 9100, no Windows printer driver/share needed (mirrors
+      // the HPRT TCP path). This is what lets a single gateway agent serve every
+      // terminal without per-machine printer installs. Falls back to the Windows
+      // share when only a share name is configured (USB-attached printer).
+      const ip = printerIP || printerCfg.tscIp;
+      if (ip) {
+        const client = new net.Socket();
+        return new Promise((resolve, reject) => {
+          client.setTimeout(5000);
+          client.connect(9100, ip, () => {
+            client.write(Buffer.from(data, "ascii"));
+            client.end();
+          });
+          client.on("close", () =>
+            resolve({ success: true, message: `TSC sent via TCP:${ip}` })
+          );
+          client.on("timeout", () => {
+            client.destroy();
+            reject(new Error(`TSC TCP:${ip} timed out`));
+          });
+          client.on("error", (err) =>
+            reject(new Error(`TSC TCP:${ip} failed: ${err.message || "unreachable"}`))
+          );
+        });
+      }
+
       const file = path.join(ROOT, `tsc_${Date.now()}.txt`);
-      await fs.promises.writeFile(file, labelData || tspl || "", "ascii");
+      await fs.promises.writeFile(file, data, "ascii");
 
       const cmd = `copy /b "${file}" "\\\\localhost\\${printerCfg.tscShareName}"`;
       console.log("🖨️ [PRINT] TSC CMD:", cmd);

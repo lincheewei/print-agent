@@ -68,3 +68,36 @@ block the others.
 
 Install a runner on it with label `warehouse-terminal-00N`, then add that label
 to the `matrix.terminal` list in `.github/workflows/deploy-agents.yml`.
+
+## 6. Printer connection: network (recommended) vs USB share
+
+The agent can reach a TSC printer two ways (`config.json` → `printer`):
+
+- **Network (`tscIp`)** — raw TSPL to `tcp://<ip>:9100`. **No Windows printer
+  driver/share install.** Setup shrinks to knowing the printer's IP. Requires the
+  TSC to be on the LAN (Ethernet/WiFi model, or a USB-to-Ethernet print server).
+  ```json
+  "printer": { "tscIp": "192.168.1.87" }
+  ```
+- **USB share (`tscShareName`)** — the legacy path: TSPL is copied to a shared
+  Windows printer. Needs the driver installed + the printer shared on that box.
+  ```json
+  "printer": { "tscShareName": "TSC_TE200" }
+  ```
+
+If both are set, **`tscIp` wins**. The request may also override with `printerIP`.
+(HPRT already works the same way via `hprtIp`.)
+
+## 7. Gateway model — one agent for the whole plant
+
+You do **not** need an agent on every machine. The console's **Test print** (and
+any print flow) lists all connected agents and sends to the one you pick, routed
+through the relay — so a designer at the office can print to a shop-floor printer
+with **no agent on their own PC**.
+
+Minimum viable setup: run **one always-on "gateway" box** on the plant LAN with
+the agent + the printer (ideally via `tscIp`, so even the gateway needs no
+Windows printer install). Point print jobs at that box's `agentId`. Per-terminal
+agents are only needed where a terminal has its **own** attached printer or a
+serial scale. Cloud→printer direct printing is **not possible** (the backend/relay
+are off-site; the agent's outbound relay connection is the only path into the LAN).
