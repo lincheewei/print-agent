@@ -798,6 +798,40 @@ function connectRelay() {
           }));
         }
       }
+      // ================= MAPS STOCK SYNC =================
+      // This agent sits on the factory LAN (same one MAPS is on), so it can
+      // reach the sync host directly — the cloud backend can't.
+      if (msg.type === "sync_maps_stock_request" && msg.requestId) {
+        const { requestId } = msg;
+
+        console.log("🔄 [AGENT] sync_maps_stock_request", requestId);
+
+        try {
+          const resp = await axios.post(
+            "http://10.0.100.16:8080/sync",
+            {},
+            { timeout: 20000 }
+          );
+
+          ws.send(JSON.stringify({
+            type: "agent_http_response",
+            requestId,
+            status: 200,
+            body: { success: true, data: resp.data, agentId }
+          }));
+
+          console.log("✅ [AGENT] sync maps stock OK", requestId);
+        } catch (err) {
+          console.error("❌ [AGENT] sync maps stock FAILED", requestId, err.message);
+
+          ws.send(JSON.stringify({
+            type: "agent_http_response",
+            requestId,
+            status: 500,
+            body: { success: false, error: err.message, agentId }
+          }));
+        }
+      }
     });
 
     // 🔥 CRITICAL: NEVER THROW
