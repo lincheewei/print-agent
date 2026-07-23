@@ -773,7 +773,14 @@ function connectRelay() {
             }
           }));
 
-          console.log("✅ [AGENT] release bins OK", requestId);
+          if (isSuccess) {
+            console.log("✅ [AGENT] release bins OK", requestId);
+          } else {
+            // MAPS responded (no network error) but didn't confirm success —
+            // log the full body here since it never got printed before, and
+            // the cloud side only ever sees status 500 with no detail.
+            console.warn("⚠️ [AGENT] MAPS rejected release", requestId, JSON.stringify(resp.data));
+          }
 
         } catch (err) {
 
